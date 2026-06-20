@@ -8,35 +8,33 @@ export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
 
-// Base fighting guard (hands up, slight stance).
+// Base fighting guard — realistic martial-arts stance: weight slightly back,
+// hands up guarding the face, knees bent, slight forward lean, feet staggered.
 export const BASE: Pose = {
-  torsoLean: 0.07,
-  headTilt: 0.05,
-  hipDrop: 0,
-  bArm: -0.38,
-  bFore: 2.45,
-  fArm: 0.5,
-  fFore: 2.3,
-  bThigh: -0.17,
-  bShin: -0.12,
-  fThigh: 0.17,
-  fShin: 0.12,
+  torsoLean: 0.11, // slight forward lean from the hips (engaged core)
+  headTilt: 0.06, // chin tucked slightly
+  hipDrop: 4, // knees bent (athletic, not locked)
+  bArm: -0.42, // back hand up guarding
+  bFore: 2.35,
+  fArm: 0.46, // lead hand up, slightly forward
+  fFore: 2.25,
+  bThigh: -0.2, // back leg stance
+  bShin: -0.14,
+  fThigh: 0.2, // lead leg forward
+  fShin: 0.14,
 };
 
 function withBase(partial: Partial<Pose>): Pose {
   return { ...BASE, ...partial };
 }
 
-function interp(a: Pose, b: Partial<Pose>, t: number): Pose {
-  const out: Pose = { ...a };
-  for (const k in b) {
-    const key = k as keyof Pose;
-    out[key] = lerp(a[key], (b as Pose)[key], t);
-  }
-  return out;
+// smoothstep easing for natural acceleration/deceleration (ease-in/out)
+function ease(t: number): number {
+  return t * t * (3 - 2 * t);
 }
 
 // Keyframe interpolation over a list of [progress, partialPose].
+// Uses smoothstep easing between frames for organic motion.
 function kf(
   frames: [number, Partial<Pose>][],
   p: number,
@@ -47,7 +45,7 @@ function kf(
     const [p0, f0] = frames[i];
     const [p1, f1] = frames[i + 1];
     if (p <= p1) {
-      const t = (p - p0) / (p1 - p0 || 1);
+      const t = ease((p - p0) / (p1 - p0 || 1));
       const poseA = withBase(f0);
       const poseB = withBase(f1);
       const out: Pose = { ...poseA };
@@ -74,31 +72,51 @@ export interface PoseCtx {
 export function poseFor(c: PoseCtx): Pose {
   switch (c.state) {
     case "idle": {
-      const breathe = Math.sin(c.time * 2.2) * 0.5;
+      // subtle weight shift + breathing: hips bob, shoulders counter-rotate
+      const breathe = Math.sin(c.time * 2.0);
+      const shift = Math.sin(c.time * 0.7) * 0.5; // slow weight transfer
       return {
         ...BASE,
-        hipDrop: breathe * 0.6,
+        hipDrop: BASE.hipDrop + breathe * 0.8,
+        torsoLean: BASE.torsoLean + breathe * 0.015,
+        headTilt: BASE.headTilt + breathe * 0.01,
+        // weight shifts between feet → slight leg angle change
+        bThigh: BASE.bThigh + shift * 0.05,
+        fThigh: BASE.fThigh - shift * 0.05,
+        // guard hands drift with breathing
         fFore: BASE.fFore + breathe * 0.03,
         bFore: BASE.bFore + breathe * 0.03,
-        torsoLean: BASE.torsoLean + breathe * 0.004,
+        fArm: BASE.fArm + breathe * 0.02,
       };
     }
     case "walk_fwd":
     case "walk_back": {
+      // natural walk cycle: hip sway, weight transfer, counter-rotating torso
+      // and arms, vertical bob peaking at foot-plants (double-pendulum feel).
       const ph = c.walkPhase;
-      const swing = 0.42;
-      const bob = Math.abs(Math.sin(ph)) * 2.5;
+      const swing = 0.5;
+      const sin = Math.sin(ph);
+      const cos = Math.cos(ph);
+      // bob: dips when a foot plants (sin near 0), rises mid-step
+      const bob = (1 - Math.abs(cos)) * 3.5;
+      // hip sway side-to-side (weight transfer)
+      const hipSway = sin * 0.06;
       return {
         ...BASE,
-        hipDrop: bob,
-        bThigh: -0.17 + Math.sin(ph) * swing,
-        fThigh: 0.17 + Math.sin(ph + Math.PI) * swing,
-        bShin: -0.12 + Math.max(0, Math.sin(ph)) * 0.5,
-        fShin: 0.12 + Math.max(0, Math.sin(ph + Math.PI)) * 0.5,
-        fArm: BASE.fArm + Math.sin(ph + Math.PI) * 0.35,
-        bArm: BASE.bArm + Math.sin(ph) * 0.35,
-        fFore: 2.0,
-        bFore: 2.0,
+        hipDrop: BASE.hipDrop + bob,
+        torsoLean: BASE.torsoLean + cos * 0.05, // torso counter-leans
+        headTilt: BASE.headTilt - cos * 0.04,
+        // legs swing + hip sway (weight transfer)
+        bThigh: BASE.bThigh + sin * swing + hipSway,
+        fThigh: BASE.fThigh - sin * swing - hipSway,
+        // shins bend back when that leg lifts (heel up), plant when down
+        bShin: BASE.bShin + Math.max(0, sin) * 0.55,
+        fShin: BASE.fShin + Math.max(0, -sin) * 0.55,
+        // arms swing opposite to legs (counter-rotation), elbows flex
+        fArm: BASE.fArm - sin * 0.4,
+        bArm: BASE.bArm + sin * 0.4,
+        fFore: 1.95 + Math.abs(sin) * 0.1,
+        bFore: 1.95 + Math.abs(sin) * 0.1,
       };
     }
     case "crouch": {
@@ -156,52 +174,81 @@ export function poseFor(c: PoseCtx): Pose {
       };
     }
     case "punch": {
-      // Lead-hand straight. Quick jab — extends very early so it lands before
-      // a retreating opponent can back out of range.
+      // Lead-hand straight with realistic biomechanics: anticipation (coil
+      // back, hips load), strike (hips rotate through, weight transfers
+      // forward, arm extends), follow-through (slight overshoot), recover.
       return kf(
         [
+          // anticipation: coil back, drop hips slightly
           [
             0,
             {
-              torsoLean: 0.1,
-              fArm: 0.9,
-              fFore: 1.3,
+              torsoLean: 0.04,
+              headTilt: 0.0,
+              fArm: 0.35,
+              fFore: 1.45,
+              bArm: -0.55,
+              bFore: 2.5,
+              hipDrop: 8,
+              bThigh: -0.28,
+              fThigh: 0.24,
+            },
+          ],
+          // strike: hips rotate, weight transfers forward, arm extends fast
+          [
+            0.16,
+            {
+              torsoLean: 0.2,
+              headTilt: 0.08,
+              fArm: 1.6,
+              fFore: 1.6,
+              bArm: -0.7,
+              bFore: 2.75,
+              hipDrop: 2,
+              bThigh: -0.12,
+              fThigh: 0.12,
+            },
+          ],
+          // active hold (snap)
+          [
+            0.36,
+            {
+              torsoLean: 0.2,
+              headTilt: 0.08,
+              fArm: 1.6,
+              fFore: 1.6,
+              bArm: -0.7,
+              bFore: 2.75,
+              hipDrop: 2,
+              bThigh: -0.12,
+              fThigh: 0.12,
+            },
+          ],
+          // follow-through: slight recoil, arm returns
+          [
+            0.6,
+            {
+              torsoLean: 0.13,
+              fArm: 1.1,
+              fFore: 1.9,
               bArm: -0.5,
-              bFore: 2.6,
-              hipDrop: 1,
+              bFore: 2.4,
+              hipDrop: 4,
             },
           ],
-          [
-            0.14,
-            {
-              torsoLean: 0.16,
-              fArm: 1.55,
-              fFore: 1.55,
-              bArm: -0.6,
-              bFore: 2.7,
-              hipDrop: 0,
-            },
-          ],
-          [
-            0.34,
-            {
-              torsoLean: 0.16,
-              fArm: 1.55,
-              fFore: 1.55,
-              bArm: -0.6,
-              bFore: 2.7,
-              hipDrop: 0,
-            },
-          ],
+          // recover to guard
           [
             1,
             {
               torsoLean: BASE.torsoLean,
+              headTilt: BASE.headTilt,
               fArm: BASE.fArm,
               fFore: BASE.fFore,
               bArm: BASE.bArm,
               bFore: BASE.bFore,
-              hipDrop: 0,
+              hipDrop: BASE.hipDrop,
+              bThigh: BASE.bThigh,
+              fThigh: BASE.fThigh,
             },
           ],
         ],
@@ -517,9 +564,9 @@ export const ATTACK_SPECS = {
     active: 0.34 * 0.3,
     recovery: 0.34 * 0.6,
     damage: 8,
-    range: 62,
-    height: -132,
-    hitH: 28,
+    range: 66,
+    height: -160,
+    hitH: 30,
     knockback: 170,
     hitstun: 0.3,
     launch: 0,
@@ -530,9 +577,9 @@ export const ATTACK_SPECS = {
     active: 0.56 * 0.28,
     recovery: 0.56 * 0.42,
     damage: 15,
-    range: 82,
-    height: -66,
-    hitH: 42,
+    range: 86,
+    height: -78,
+    hitH: 44,
     knockback: 310,
     hitstun: 0.44,
     launch: 0,
@@ -543,9 +590,9 @@ export const ATTACK_SPECS = {
     active: 0.82 * 0.2,
     recovery: 0.82 * 0.38,
     damage: 16,
-    range: 90,
-    height: -104,
-    hitH: 46,
+    range: 94,
+    height: -124,
+    hitH: 48,
     knockback: 370,
     hitstun: 0.5,
     launch: 0,

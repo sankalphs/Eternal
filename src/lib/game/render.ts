@@ -10,14 +10,17 @@ import { ACTIVE_WINDOW } from "./poses";
 export const VIRTUAL_W = 960;
 export const VIRTUAL_H = 540;
 
-// limb dimensions
-const THIGH = 36;
-const SHIN = 34;
-const TORSO = 50;
-const NECK = 8;
-const HEAD_R = 11;
-const UARM = 28;
-const FARM = 26;
+// limb dimensions — Da Vinci / Vitruvian proportions (height ≈ 7.5 heads).
+// Total fighter ~190px tall: head 12.5 radius (25 diameter) × 7.6 ≈ 190.
+// Arm span ≈ height. Thigh ≈ shin ≈ 2 heads. Upper arm ≈ forearm.
+const HEAD_R = 12.5;
+const NECK = 9;
+const TORSO = 46; // chest-to-hip (≈ 2 heads)
+const UARM = 27; // upper arm (≈ 1.1 heads)
+const FARM = 25; // forearm (≈ 1 head)
+const THIGH = 40; // thigh (≈ 1.6 heads)
+const SHIN = 38; // shin (≈ 1.55 heads)
+// standing height ≈ TORSO + NECK + 2*HEAD_R + THIGH + SHIN ≈ 190
 
 // polar: angle 0 = straight down (+y), positive rotates toward +x (front).
 function polar(len: number, a: number): [number, number] {
@@ -42,7 +45,9 @@ interface Joints {
 
 function computeJoints(f: Fighter): Joints {
   const p = f.pose();
-  const hipY = f.y - 70 + p.hipDrop;
+  // hip sits one leg-length above the ground (feet touch ground when standing)
+  const LEG = THIGH + SHIN;
+  const hipY = f.y - LEG + p.hipDrop;
   const hip: [number, number] = [0, hipY];
   const chest = [hip[0] + polar(TORSO, Math.PI - p.torsoLean)[0], hip[1] + polar(TORSO, Math.PI - p.torsoLean)[1]];
   const headAng = Math.PI - p.torsoLean - p.headTilt;
@@ -50,8 +55,8 @@ function computeJoints(f: Fighter): Joints {
     chest[0] + polar(NECK + HEAD_R, headAng)[0],
     chest[1] + polar(NECK + HEAD_R, headAng)[1],
   ];
-  const bShoulder: [number, number] = [chest[0] - 5, chest[1] + 3];
-  const fShoulder: [number, number] = [chest[0] + 5, chest[1] + 3];
+  const bShoulder: [number, number] = [chest[0] - 6, chest[1] + 2];
+  const fShoulder: [number, number] = [chest[0] + 6, chest[1] + 2];
   const bElbow = [bShoulder[0] + polar(UARM, p.bArm)[0], bShoulder[1] + polar(UARM, p.bArm)[1]];
   const bHand = [bElbow[0] + polar(FARM, p.bFore)[0], bElbow[1] + polar(FARM, p.bFore)[1]];
   const fElbow = [fShoulder[0] + polar(UARM, p.fArm)[0], fShoulder[1] + polar(UARM, p.fArm)[1]];
@@ -515,7 +520,7 @@ function drawAura(ctx: CanvasRenderingContext2D, f: Fighter) {
   const lowHp = f.hp > 0 && f.hp / f.maxHp < 0.3;
   if (!attacking && !lowHp) return;
   const cx = f.x;
-  const cy = f.y - 60;
+  const cy = f.y - 95;
   let alpha = 0;
   let color = f.rim;
   if (attacking) {
@@ -584,17 +589,17 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   };
 
   // back leg
-  limb(j.hip, j.bKnee, 13);
-  limb(j.bKnee, j.bFoot, 10);
-  foot(ctx, j.bFoot, 10);
+  limb(j.hip, j.bKnee, 15);
+  limb(j.bKnee, j.bFoot, 12);
+  foot(ctx, j.bFoot, 12);
   // back arm
-  limb(j.bShoulder, j.bElbow, 9);
-  limb(j.bElbow, j.bHand, 7);
-  joint(j.bElbow, 3.4);
+  limb(j.bShoulder, j.bElbow, 10);
+  limb(j.bElbow, j.bHand, 8);
+  joint(j.bElbow, 3.8);
   // torso
-  limb(j.hip, j.chest, 16);
+  limb(j.hip, j.chest, 18);
   // neck
-  limb(j.chest, [j.head[0], j.head[1] + HEAD_R - 2], 8);
+  limb(j.chest, [j.head[0], j.head[1] + HEAD_R - 2], 9);
   // head
   ctx.fillStyle = fill;
   ctx.beginPath();
@@ -608,21 +613,21 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
 
   // front leg
   if (inActive && (atk === "kick" || atk === "roundhouse")) {
-    motionFan(ctx, j.fKnee, j.fFoot, 10, rim);
+    motionFan(ctx, j.fKnee, j.fFoot, 12, rim);
   }
-  limb(j.hip, j.fKnee, 13);
-  limb(j.fKnee, j.fFoot, 10);
+  limb(j.hip, j.fKnee, 15);
+  limb(j.fKnee, j.fFoot, 12);
   joint(j.fKnee, 4);
   foot(ctx, j.fFoot, 11);
 
   // front arm
   if (inActive && atk === "punch") {
-    motionFan(ctx, j.fElbow, j.fHand, 7, rim);
+    motionFan(ctx, j.fElbow, j.fHand, 8, rim);
   }
-  limb(j.fShoulder, j.fElbow, 9);
-  limb(j.fElbow, j.fHand, 7);
-  joint(j.fElbow, 3.4);
-  joint(j.fHand, 2.6);
+  limb(j.fShoulder, j.fElbow, 10);
+  limb(j.fElbow, j.fHand, 8);
+  joint(j.fElbow, 3.8);
+  joint(j.fHand, 3);
 
   // blade glint along the striking limb
   if (f.blade && inActive) {

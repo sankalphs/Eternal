@@ -14,8 +14,8 @@ export const GROUND_Y = 470; // virtual ground (canvas is scaled to fit)
 export const WALK_SPEED = 182;
 export const JUMP_VEL = 640;
 export const GRAVITY = 1180;
-export const STAGE_LEFT = 70;
-export const STAGE_RIGHT = 890;
+export const STAGE_LEFT = 80;
+export const STAGE_RIGHT = 880;
 export const ROLL_SPEED = 400; // quick dash speed during a roll
 
 export interface FighterOpts {
@@ -271,14 +271,15 @@ export class Fighter {
   // Body collision box (world space).
   bodyBox(): Rect {
     const p = this.pose();
-    const hipY = this.y - 70 + p.hipDrop;
-    const shoulderY = hipY - 48;
-    const headTop = shoulderY - 30;
-    const top = this.state === "knockdown" || this.state === "defeated"
-      ? this.y - 40
-      : headTop;
+    // match render proportions: leg = 78, torso = 46, neck+head ≈ 34
+    const hipY = this.y - 78 + p.hipDrop;
+    const headTop = hipY - 46 - 34;
+    const top =
+      this.state === "knockdown" || this.state === "defeated"
+        ? this.y - 44
+        : headTop;
     const bottom = this.y;
-    return { x: this.x - 15, y: top, w: 30, h: bottom - top };
+    return { x: this.x - 16, y: top, w: 32, h: bottom - top };
   }
 
   // Active attack hitbox (world space), or null if not in active frames.
@@ -367,15 +368,23 @@ export class Fighter {
       this.applyPhysics(dt);
       return;
     }
-    // Roll: locked tucked dash, i-frames, ends into idle.
+    // Roll: locked tucked dash, i-frames, slight arc (lifts off ground
+    // mid-roll like a dive roll), ends into idle.
     if (this.state === "roll") {
-      // maintain dash velocity through the roll so it covers real ground
       this.vx = this.rollDir * ROLL_SPEED * this.speedMul;
+      // arc: rise to ~22px at mid-roll, settle back by the end
+      const arc = Math.sin(this.progress * Math.PI) * 22;
+      this.y = GROUND_Y - arc;
+      this.onGround = arc < 1;
       if (this.progress >= 1) {
+        this.y = GROUND_Y;
+        this.onGround = true;
         this.setState("idle");
         this.spin = 0;
       }
-      this.applyPhysics(dt);
+      // still apply horizontal physics (but skip gravity/ground logic)
+      this.x += this.vx * dt;
+      this.x = clamp(this.x, STAGE_LEFT, STAGE_RIGHT);
       return;
     }
 
@@ -549,7 +558,7 @@ export class Fighter {
 
   // Called by engine to resolve overlap with opponent.
   separateFrom(opp: Fighter) {
-    const minDist = 34;
+    const minDist = 40;
     const dx = this.x - opp.x;
     const dist = Math.abs(dx);
     if (dist < minDist && this.onGround && opp.onGround) {

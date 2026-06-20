@@ -103,10 +103,20 @@ export default function ShadowFight() {
     const resize = () => {
       const wrap = wrapRef.current!;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = wrap.clientWidth;
-      const h = Math.round((w * VIRTUAL_H) / VIRTUAL_W);
+      // Fill the entire viewport (cover), letterboxing nothing.
+      const vw = wrap.clientWidth;
+      const vh = wrap.clientHeight;
+      // scale so the 960x540 virtual stage covers the viewport
+      const sx = vw / VIRTUAL_W;
+      const sy = vh / VIRTUAL_H;
+      const scale = Math.max(sx, sy); // cover
+      const w = VIRTUAL_W * scale;
+      const h = VIRTUAL_H * scale;
       canvas.style.width = w + "px";
       canvas.style.height = h + "px";
+      canvas.style.position = "absolute";
+      canvas.style.left = (vw - w) / 2 + "px";
+      canvas.style.top = (vh - h) / 2 + "px";
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
     };
@@ -152,11 +162,15 @@ export default function ShadowFight() {
       // render
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const sx = canvas.width / VIRTUAL_W;
+      const sy = canvas.height / VIRTUAL_H;
+      const baseScale = Math.max(sx, sy); // cover: canvas is at least virtual size
       // punch-zoom around center
       const z = 1 + eng.zoom * 0.07;
-      const tx = sx * (VIRTUAL_W * (1 - z)) / 2;
-      const ty = sx * (VIRTUAL_H * (1 - z)) / 2;
-      ctx.setTransform(sx * z, 0, 0, sx * z, tx, ty);
+      const ox = (canvas.width - VIRTUAL_W * baseScale) / 2;
+      const oy = (canvas.height - VIRTUAL_H * baseScale) / 2;
+      const tx = ox + baseScale * (VIRTUAL_W * (1 - z)) / 2;
+      const ty = oy + baseScale * (VIRTUAL_H * (1 - z)) / 2;
+      ctx.setTransform(baseScale * z, 0, 0, baseScale * z, tx, ty);
       // screen shake
       if (eng.shake > 0) {
         const s = eng.shake;
@@ -173,7 +187,7 @@ export default function ShadowFight() {
       if (eng.flash > 0) {
         ctx.globalAlpha = Math.min(1, eng.flash * 1.6);
         ctx.fillStyle = eng.flashColor || "#ffffff";
-        ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+        ctx.fillRect(-2000, -2000, canvas.width + 4000, canvas.height + 4000);
         ctx.globalAlpha = 1;
       }
 
@@ -297,17 +311,16 @@ export default function ShadowFight() {
   const showChampion = started && snap.phase === "champion";
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-2 sm:px-4">
-      <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/60 bg-black">
-        {/* mute toggle */}
-        <button
-          type="button"
-          onClick={toggleMute}
-          aria-label={muted ? "Unmute music" : "Mute music"}
-          className="absolute top-2 right-2 sm:top-3 sm:right-3 z-30 w-9 h-9 rounded-full border border-white/20 bg-black/50 backdrop-blur text-white/80 hover:bg-white/15 active:scale-95 transition flex items-center justify-center"
-        >
-          {muted ? <MuteIcon /> : <SoundIcon />}
-        </button>
+    <div className="fixed inset-0 bg-black overflow-hidden">
+      {/* mute toggle */}
+      <button
+        type="button"
+        onClick={toggleMute}
+        aria-label={muted ? "Unmute music" : "Mute music"}
+        className="absolute top-3 right-3 z-40 w-9 h-9 rounded-full border border-white/20 bg-black/50 backdrop-blur text-white/80 hover:bg-white/15 active:scale-95 transition flex items-center justify-center"
+      >
+        {muted ? <MuteIcon /> : <SoundIcon />}
+      </button>
 
         {/* HUD top bar */}
         <div className="absolute top-0 left-0 right-0 z-20 p-2 sm:p-3 pointer-events-none">
@@ -384,9 +397,9 @@ export default function ShadowFight() {
           </div>
         )}
 
-        {/* Canvas */}
-        <div ref={wrapRef} className="relative w-full aspect-[16/9] bg-black">
-          <canvas ref={canvasRef} className="block w-full h-full" />
+        {/* Canvas — fills the entire viewport */}
+        <div ref={wrapRef} className="absolute inset-0 bg-black">
+          <canvas ref={canvasRef} className="block" />
         </div>
 
         {/* Touch controls (mobile) */}
@@ -402,9 +415,8 @@ export default function ShadowFight() {
             <Key>E</Key> Roll <Key>J</Key> Punch <Key>K</Key> Kick <Key>I</Key> Roundhouse <Key>L</Key> Block
           </div>
         )}
-      </div>
 
-      {/* Phase panels */}
+      {/* Phase panel overlays */}
       {showMenu && view === "menu" && (
         <MenuPanel onStart={start} onSelect={() => setView("select")} />
       )}
@@ -580,10 +592,10 @@ function MenuPanel({
   onSelect: () => void;
 }) {
   return (
-    <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/80 backdrop-blur p-5 sm:p-8">
-      <div className="text-center mb-5">
+    <div className="absolute inset-0 z-30 overflow-y-auto bg-gradient-to-b from-black/70 via-black/55 to-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-4 sm:p-8">
+      <div className="w-full max-w-2xl text-center mb-5">
         <h1
-          className="text-4xl sm:text-6xl font-black tracking-tight text-white"
+          className="text-5xl sm:text-7xl font-black tracking-tight text-white"
           style={{ textShadow: "0 0 30px rgba(255,120,60,0.6)" }}
         >
           SHADOW FIGHT
@@ -613,7 +625,7 @@ function MenuPanel({
         </button>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-400 max-w-3xl mx-auto">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-400 max-w-3xl mx-auto">
         <Control keys="WASD / ←→" label="Move" />
         <Control keys="W / ↑ / Space" label="Flip-Jump" />
         <Control keys="S / ↓" label="Crouch (duck)" />
@@ -653,7 +665,8 @@ function SelectPanel({
   onFight: () => void;
 }) {
   return (
-    <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/85 backdrop-blur p-5 sm:p-7">
+    <div className="absolute inset-0 z-30 overflow-y-auto bg-black/75 backdrop-blur-sm flex flex-col justify-center p-4 sm:p-7">
+      <div className="w-full max-w-2xl mx-auto rounded-2xl border border-white/10 bg-zinc-950/80 backdrop-blur p-5 sm:p-7">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl sm:text-2xl font-black text-white tracking-wide">
           SELECT BATTLE
@@ -733,6 +746,7 @@ function SelectPanel({
           FIGHT {OPPONENTS[selOpp].name.toUpperCase()}
         </button>
       </div>
+      </div>
     </div>
   );
 }
@@ -785,7 +799,8 @@ function EndPanel({
   secondary?: { label: string; onClick: () => void };
 }) {
   return (
-    <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/85 backdrop-blur p-6 sm:p-10 text-center">
+    <div className="absolute inset-0 z-30 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 text-center">
+      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-zinc-950/85 backdrop-blur p-6 sm:p-10">
       <h2
         className="text-4xl sm:text-6xl font-black tracking-tight"
         style={{ color: accent, textShadow: `0 0 28px ${accent}88` }}
@@ -809,6 +824,7 @@ function EndPanel({
             {secondary.label}
           </button>
         )}
+      </div>
       </div>
     </div>
   );

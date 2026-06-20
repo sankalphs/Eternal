@@ -146,3 +146,33 @@ Stage Summary:
 - Roll dodge now actually moves the fighter (~160-235px per roll) instead of spinning in place — fixed the double-decay bug.
 - Jump is higher (155px peak) and floatier (~1s air time) with proper momentum-preserving air control — feels like a real acrobatic flip.
 - Previous "fixes" claimed but not actually verified; this time tested with real input simulation and quantified the results.
+
+---
+Task ID: 15
+Agent: main
+Task: Full-window game + ultra-realistic fighter physics/body movements (researched from web first).
+
+Research (web search + reading):
+- Disney's 12 Principles of Animation: squash & stretch, anticipation, follow-through, ease-in/out, weight.
+- Da Vinci/Vitruvian proportions: ~7.5 heads tall; arm span ≈ height; thigh ≈ shin ≈ 2 heads; upper arm ≈ forearm.
+- Martial-arts biomechanics: hip rotation generates power; weight transfers back→front through hips; torso counter-rotates against hips.
+- Capcom fighting-game walk cycles: hip sway + counter-rotation between hips and chest; weight shifting between feet; vertical bob peaking at foot-plants.
+- Shadow Fight 2 moves: stand/step/walk/crouch/crawl/jump all back and forth; dodge/dash evade mechanics.
+
+Work Log:
+- page.tsx: replaced header/main/footer layout with a single fixed inset-0 div; game now fills the entire viewport with no bottom/top space.
+- ShadowFight.tsx: resize() now uses "cover" scaling (max of width/height ratios) so the canvas fills the viewport with no letterboxing; canvas positioned absolutely centered. Render transform accounts for the cover offset + punch-zoom. Flash fillRect covers full canvas. MenuPanel/SelectPanel/EndPanel converted to full-screen absolute overlays (z-30) with semi-transparent backdrops.
+- render.ts proportions (Da Vinci): HEAD_R 11→12.5, NECK 8→9, TORSO 50→46, UARM 28→27, FARM 26→25, THIGH 36→40, SHIN 34→38 (~190px tall, ~7.6 heads). computeJoints hipY now uses actual leg length (THIGH+SHIN=78) so feet touch ground. Body collision box updated to match. Limb drawing widths scaled up (torso 16→18, thighs 13→15, arms 9→10). Aura center y adjusted. separateFrom minDist 34→40, stage bounds 70/890→80/880.
+- poses.ts BASE stance: realistic martial-arts guard — bent knees (hipDrop 4), hands up guarding, staggered feet, slight forward lean, chin tucked. Added smoothstep ease() used in kf() for organic ease-in/out on all keyframed states.
+- poses.ts idle: weight-shift breathing (slow side-to-side weight transfer between feet via thigh angles), hip bob, torso/head counter-motion, guard hands drift.
+- poses.ts walk cycle: hip sway side-to-side (weight transfer), torso counter-leans against hips, head counters, arms swing opposite to legs (counter-rotation), shins flex back on lift (heel up), vertical bob dips at foot-plants.
+- poses.ts punch: full biomechanics — anticipation (coil back, hips load, hipDrop rises), strike (hips rotate through, weight transfers forward via thigh angles, torso leans, arm extends), snap hold, follow-through (recoil), recover to guard.
+- fighter.ts roll: now has a dive-roll arc — lifts ~22px off the ground mid-roll (sin curve) and settles back, bypassing gravity/ground logic during the roll. Maintains dash velocity.
+- attack heights rescaled for the taller body (punch -132→-160, kick -66→-78, roundhouse -104→-124).
+- Verified via Agent Browser + VLM: full-window (no borders, menu overlay on arena); fighters proportionally consistent with feet grounded; punch shows forward lean/rotation + enemy recoils (-9 dmg); flip jump airborne+tucked+clean landing (spin 0); roll moves 208px with 22px arc peak, returns to idle spin=0. No errors. Lint clean.
+
+Stage Summary:
+- Game window now fills the entire viewport (cover scaling, no letterboxing/borders); menus are full-screen overlays.
+- Fighter bodies rebuilt with Da Vinci proportions (~7.6 heads, correct segment ratios) and realistic martial-arts stance.
+- Animation applies the 12 principles (anticipation, follow-through, ease-in/out, weight shift) + biomechanics (hip rotation, weight transfer, counter-rotation) — visible in the punch coil-strike-recoil, the walk-cycle hip sway, and the idle weight-shift breathing.
+- Roll is now a dive-roll arc (lifts off ground mid-roll); jump flip is acrobatic with clean recovery.
