@@ -1,28 +1,35 @@
 // The Riverbank Oath — a twisted storyline for the Shadow Fight intro.
 // Eight acts timed to the musical sections of "Steel on the Riverbank"
-// (141.98s ≈ 2:22). The twist: the player has been a demon wearing a dead
-// hero's memories all along — the "demons" they slew were the real sealers.
+// (141.98s ≈ 2:22). Each act is a DISTINCT painted scene that visually
+// depicts its narration — a movie, not subtitles over a static backdrop.
+// The twist: the player has been a demon wearing a dead hero's memories
+// all along — the "demons" they slew were the real sealers.
+
+export type SceneKind =
+  | "dawn_oath" // lone figure swearing at a riverbank at dawn
+  | "march_hunt" // silhouette marching across hills, demon shapes ahead
+  | "seals" // a body with glowing seals, reflection fading
+  | "village" // a village crowd cheering, torches
+  | "gate_meet" // the gate, an old master waiting
+  | "reflection_twist" // a reflection in water that is NOT the hero
+  | "demon_reveal" // the hero's silhouette splits to show the demon
+  | "screaming" // the "cheering" crowd revealed as screaming, fleeing
+  | "final_riverbank"; // shadow stands where the oath was sworn, river red
 
 export interface StoryBeat {
-  /** start time in seconds */
   t: number;
-  /** end time in seconds */
   end: number;
-  /** act label shown in the UI */
   act: string;
-  /** narration lines (typed in sequence) */
   lines: string[];
-  /** scene mood: controls the canvas backdrop */
-  mood: "dawn" | "march" | "battle" | "gate" | "twist" | "reveal" | "climax" | "end";
+  scene: SceneKind;
 }
 
-// Section boundaries (s) from audio analysis: 0, 12, 25, 34, 51, 83, 103, 121, 134, 142
 export const STORY_BEATS: StoryBeat[] = [
   {
     t: 0,
     end: 12,
     act: "I — The Oath",
-    mood: "dawn",
+    scene: "dawn_oath",
     lines: [
       "They say a swordsman once stood on this riverbank.",
       "At dawn, he swore an oath — to find the Gates of Shadow,",
@@ -33,7 +40,7 @@ export const STORY_BEATS: StoryBeat[] = [
     t: 12,
     end: 25,
     act: "II — The Hunt",
-    mood: "march",
+    scene: "march_hunt",
     lines: [
       "He was a hero. The last of his order.",
       "One by one, he hunted the demons who had slipped through the gate —",
@@ -44,20 +51,20 @@ export const STORY_BEATS: StoryBeat[] = [
     t: 25,
     end: 34,
     act: "III — The Seals",
-    mood: "battle",
+    scene: "seals",
     lines: [
       "Each demon carried a seal. Each seal he claimed.",
-      "And with every seal, his body grew a little colder...",
+      "And with every seal, his reflection began to fade from the river.",
     ],
   },
   {
     t: 34,
     end: 51,
     act: "IV — The Cheers",
-    mood: "march",
+    scene: "village",
     lines: [
-      "His reflection began to fade from the river.",
       "But the villages he saved still cheered his name.",
+      "They lit torches. They called him savior.",
       "He told himself it was a fair trade.",
     ],
   },
@@ -65,7 +72,7 @@ export const STORY_BEATS: StoryBeat[] = [
     t: 51,
     end: 83,
     act: "V — The Master",
-    mood: "gate",
+    scene: "gate_meet",
     lines: [
       "At last he came to the final gate, where his old master waited.",
       "'You have done well,' the old man said, smiling.",
@@ -75,8 +82,8 @@ export const STORY_BEATS: StoryBeat[] = [
   {
     t: 83,
     end: 103,
-    act: "VI — The Return",
-    mood: "twist",
+    act: "VI — The Reflection",
+    scene: "reflection_twist",
     lines: [
       "The master took the seals... and the shadow's face returned to flesh.",
       "But it was not the swordsman's face that looked back from the water.",
@@ -87,7 +94,7 @@ export const STORY_BEATS: StoryBeat[] = [
     t: 103,
     end: 121,
     act: "VII — The Truth",
-    mood: "reveal",
+    scene: "demon_reveal",
     lines: [
       "The swordsman had died at the very first gate.",
       "The thing that walked the whole road in his skin was a demon —",
@@ -99,7 +106,7 @@ export const STORY_BEATS: StoryBeat[] = [
     t: 121,
     end: 134,
     act: "VIII — The Screams",
-    mood: "climax",
+    scene: "screaming",
     lines: [
       "The 'demons' he slew were the real sealers —",
       "the heroes, trying to cage him once more.",
@@ -110,7 +117,7 @@ export const STORY_BEATS: StoryBeat[] = [
     t: 134,
     end: 142,
     act: "Coda — The Riverbank",
-    mood: "end",
+    scene: "final_riverbank",
     lines: [
       "Now the shadow stands where the oath was sworn,",
       "wearing a hero's face.",

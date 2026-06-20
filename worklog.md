@@ -252,3 +252,30 @@ Stage Summary:
 - Each of the 8 opponents has a story-relevant title + narrative beat shown in the select screen.
 - End panels have story-continuation text (sealer falls / driven back / gatekeeper).
 - Cinematic styling throughout: rose/blood-red accents, ink-brush dividers, italic story text, darker backdrops — more atmospheric and realistic than the previous generic UI.
+
+---
+Task ID: 19
+Agent: main
+Task: Make storytelling a real movie — each story beat a DISTINCT painted scene that visually depicts its narration (not the same UI with changing subtitles). Match reference image cinematic style.
+
+Work Log:
+- Analyzed the user's reference image with VLM: minimalist stylized animation, lone silhouetted figure at a riverbank, layered mountains, gradient sky (purple→orange), ripple water, soft diffuse light, centered lower-third subtitles, abundant negative space.
+- story.ts: redesigned each beat to have a DISTINCT scene kind (dawn_oath, march_hunt, seals, village, gate_meet, reflection_twist, demon_reveal, screaming, final_riverbank) — each visually depicting its narration.
+- StoryIntro.tsx (rewritten rendering): a scene dispatcher draws a different painted scene per beat:
+  * dawn_oath: lone figure at a riverbank at dawn (purple→orange sky, stars, sun, hills, ripple water, mist, figure with planted sword).
+  * march_hunt: hero marching along a winding path, 3 hunched demon shapes ahead with red eyes.
+  * seals: figure center with 5 glowing seals orbiting, a fading flickering reflection below.
+  * village: a crowd of 16 small silhouettes with raised arms + torches, village huts with warm glowing windows, hero hailed center-back (the "villagers cheering" example).
+  * gate_meet: a towering gate, an old hunched master with a staff waiting, hero approaching.
+  * reflection_twist: figure at a bank, the water reflection is a DEMONIC face (red-rimmed, horned, glowing eyes) — not the hero.
+  * demon_reveal: the hero silhouette splits into two halves drifting apart, a red demon with horns + glowing eyes grows within.
+  * screaming: the same village crowd now fleeing in terror (leaning away, arms thrown up, red screaming mouths), the demonic shadow looms large.
+  * final_riverbank: the demon shadow stands where the oath was sworn, blood-red sun + red river.
+- Cinematic crossfades between scenes (black fade-in over ~0.8s on scene change). Lower-third centered subtitles with typewriter reveal, matching the reference image's subtitle style.
+- Realism/atmosphere: layered depth (sky→hills→bank→water), soft diffuse light, ripple shimmer water, drifting embers, vignette, mist bands — matching the reference aesthetic.
+- Verified via Agent Browser + VLM: captured 5 distinct scenes (dawn oath, march hunt, village cheering, reflection twist, screaming) — all visually distinct and each matches its narration. The village scene specifically shows a cheering crowd with torches + huts (the user's example). No errors. Lint clean.
+
+Stage Summary:
+- The intro is now a real movie: each of the 9 story beats paints a DIFFERENT scene that visually depicts its narration (oath at dawn → marching hunt → glowing seals → cheering village → gate meeting → demonic reflection → demon reveal → screaming crowd → final riverbank).
+- When the story says "villagers cheered him as a hero", the UI shows a village crowd with torches and huts; when it says "the cheers were screams", the same crowd flees in terror from a looming demon.
+- Cinematic crossfades, atmospheric layered visuals, and lower-third subtitles matching the reference image style.
