@@ -205,3 +205,29 @@ Work Log:
 Stage Summary:
 - 8 opponents now scale steeply in difficulty via dynamic AI rules: whiff-punish, anti-air, pressure strings, mixups, adaptive habit-reading, rage (low-HP comeback), and frame-perfect blocking.
 - Early opponents (Lynx, Bandit) are forgiving; late opponents (Shogun, Titan) are very hard to defeat — they block most attacks, punish whiffs, anti-air jumps, run pressure combos, and adapt to repeated patterns.
+
+---
+Task ID: 17
+Agent: main
+Task: Create a Shadow-Fight-2-style twisted storyline with UI, exactly 2:22, synced to the user's uploaded song "Steel on the Riverbank".
+
+Work Log:
+- Analyzed the uploaded MP3 with librosa: duration 141.98s (≈ 2:22), tempo 107.7 BPM, 242 beats. Extracted energy-change section boundaries at 12/25/34/51/83/103/121/134s and a per-quarter energy profile (quiet intro → loud body → slightly softer outro).
+- Designed a twisted 8-act storyline "THE RIVERBANK OATH": a swordsman swears to seal the Gates of Shadow, hunts the demons, gathers their seals — but the twist is he died at the first gate; the thing walking in his skin is a demon wearing his memories, hunting its own kind to become the new Gatekeeper. The "demons" were the real sealers; the cheers were screams. Final reveal: "And you — are the shadow."
+- story.ts: STORY_BEATS array with 8 acts + coda, each timed to a song section boundary, with narration lines + a mood (dawn/march/battle/gate/twist/reveal/climax/end).
+- Copied the MP3 to public/audio/steel_on_the_riverbank.mp3 for serving.
+- StoryIntro.tsx: full cinematic cutscene component:
+  * Pre-start overlay: title card "THE RIVERBANK OATH", "2:22 · scored to Steel on the Riverbank", BEGIN THE TALE button, skip-the-story link.
+  * Canvas renders an evolving riverbank scene synced to mood + time: dawn sky gradient → darkens/reddens through the twist; low sun (turns blood-red); layered distant hills; a towering gate that opens (light pours through) at Act V; riverbank with reeds; water with shimmer lines + stretched sun reflection that turns red; a lone swordsman silhouette with a sword (rims red + hue flips to demon-red after the reveal) and a flipped faded reflection; drifting mist bands; embers/sparks (more + redder after the twist).
+  * Narration panel: typewriter-typed lines at the bottom, progressively revealed within each beat, with previous lines dimmed.
+  * Act label (top-left), progress bar (top), time counter "M:SS / 2:22" (top-center), pause + skip (✕) controls (top-right).
+  * Title card "SHADOW FIGHT / THE RIVERBANK OATH" pops in at 138s.
+  * Audio via new Audio() (not in DOM); reads currentTime each frame to drive canvas + narration. Auto-finishes → game menu when the song ends.
+  * Used useMemo for typed-line derivation (lint: no setState-in-effect).
+- page.tsx: shows StoryIntro first, then the game (onFinish → setShowStory(false)).
+- Verified via Agent Browser: start screen correct; song plays (time advanced 0:04→0:34→1:45→2:22 over the run); Act I renders riverbank+silhouette+narration; Act VII twist renders dark/red scene + red-rimmed demon silhouette + reveal narration; story auto-transitions to game menu at 2:22; skip-the-story link + in-story ✕ button both skip to the menu. No errors. Lint clean.
+
+Stage Summary:
+- A 2:22 cinematic intro "THE RIVERBANK OATH" plays on load, scored exactly to the user's uploaded song, with a twisted Shadow-Fight-2-style story (8 acts + coda) synced to the song's musical sections.
+- Fully canvas-rendered evolving riverbank scene (mist, water, sun, gate, swordsman silhouette) that visually twists (river turns red, hero revealed as red-rimmed demon) with the narrative.
+- Story UI: begin/pause/skip controls, progress bar, act label, time counter, typewriter narration; auto-transitions to the game menu at the song's end (or on skip).
