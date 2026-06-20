@@ -302,3 +302,27 @@ Stage Summary:
 - The 51-83s musical climax is now an intense animated sword fight at the gate (was a static meeting scene).
 - Choreographed clash cycles (approach → clash+spark → recoil) synced to the song's ~107 BPM tempo, with spark bursts, motion trails, a pulsing red gate, and swinging swords.
 - The fight visually depicts the narration ("Steel rang on steel at the gate of shadow").
+
+---
+Task ID: 21
+Agent: main
+Task: Ultra-realistic UI + proper physics (tapered limbs, momentum-based movement, variable jump height, WebGL post-processing).
+
+Work Log:
+- TAPERED LIMBS (render.ts): replaced all flat lineTo-stroke limbs with filled tapered capsule paths (taperedLimb function). Each limb segment is now a filled shape that's thicker at the proximal joint (shoulder/hip) and thinner at the distal end (hand/foot), matching real anatomy. Thighs taper 16→13, shins 13→9, upper arms 11→8, forearms 8→5, torso 20→14. Joints are rounded capsules that blend smoothly.
+- PHYSICS (fighter.ts): 
+  * Momentum-based movement: ground movement now ACCELERATES toward target velocity (ACCEL=1400 px/s²) instead of instantly setting vx. Stopping decelerates via FRICTION (1600 px/s²). Air control uses AIR_ACCEL (700 px/s²). No more instant velocity changes.
+  * Variable jump height: added jumpHeld tracking. When the up key is released while still rising, vy *= JUMP_CUT (0.35) — tap = short hop, hold = full jump. Verified: tap=67px, hold=154px.
+  * Proper deceleration in applyPhysics: replaced `vx *= 0.8` multiplier with frame-rate-independent FRICTION-based deceleration.
+  * Verified acceleration curve: 0→140→182 over 300ms (accelerating), 182→0 over 300ms after release (decelerating).
+- WEBGL POST-PROCESSING (postfx.ts + ShadowFight.tsx):
+  * New PostFX class: creates a WebGL context on a separate overlay canvas, uploads the game canvas as a texture each frame, and renders through a fragment shader.
+  * Fragment shader applies: bloom (3x3 gaussian blur on bright areas, intensity scales with combat intensity), chromatic aberration (RGB channel offset, scales with eng.chromAb on heavy hits), and vignette (darkened edges).
+  * The fxCanvas overlays the game canvas with pointerEvents:none, sized to match via ResizeObserver.
+  * Verified: VLM confirms bloom glow, vignette, and tapered limbs visible. No WebGL errors in console.
+- Lint clean. No runtime errors. All three improvements verified via Agent Browser.
+
+Stage Summary:
+- Fighter limbs are now anatomically tapered (filled capsule paths, thicker at joints, thinner at extremities) — no more flat stick-figure strokes.
+- Physics is momentum-based: fighters accelerate/decelerate smoothly (not instant velocity), jumps have variable height (tap=short, hold=tall), air control preserves momentum.
+- WebGL post-processing adds cinematic bloom (bright areas glow, intensifies in combat), chromatic aberration (RGB split on heavy hits), and vignette — via a custom fragment shader on a separate WebGL canvas.

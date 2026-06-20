@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GameEngine, OPPONENTS, ROUNDS_TO_WIN } from "@/lib/game/engine";
 import { render, VIRTUAL_H, VIRTUAL_W } from "@/lib/game/render";
 import { GameAudio } from "@/lib/game/audio";
+import { PostFX } from "@/lib/game/postfx";
 import type { BackgroundId, InputState, Phase } from "@/lib/game/types";
 
 interface Snapshot {
@@ -68,7 +69,9 @@ const KEY_MAP: Record<string, keyof InputState> = {
 
 export default function ShadowFight() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fxCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const postFXRef = useRef<PostFX | null>(null);
   const [eng] = useState(() => new GameEngine());
   const [audio] = useState(() => new GameAudio());
   const [muted, setMuted] = useState(false);
@@ -122,6 +125,31 @@ export default function ShadowFight() {
     };
     resize();
     const ro = new ResizeObserver(resize);
+    ro.observe(wrapRef.current!);
+
+    // initialize WebGL post-processing
+    const fxCanvas = fxCanvasRef.current;
+    if (fxCanvas && !postFXRef.current) {
+      postFXRef.current = new PostFX(fxCanvas);
+    }
+    const fxResize = () => {
+      if (!fxCanvas || !wrapRef.current) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const vw = wrapRef.current.clientWidth;
+      const vh = wrapRef.current.clientHeight;
+      const sxr = vw / VIRTUAL_W;
+      const syr = vh / VIRTUAL_H;
+      const scale = Math.max(sxr, syr);
+      const w = VIRTUAL_W * scale;
+      const h = VIRTUAL_H * scale;
+      fxCanvas.style.width = w + "px";
+      fxCanvas.style.height = h + "px";
+      fxCanvas.style.position = "absolute";
+      fxCanvas.style.left = (vw - w) / 2 + "px";
+      fxCanvas.style.top = (vh - h) / 2 + "px";
+      fxCanvas.style.pointerEvents = "none";
+    };
+    fxResize();
     ro.observe(wrapRef.current!);
 
     const loop = (now: number) => {
@@ -189,6 +217,15 @@ export default function ShadowFight() {
         ctx.fillStyle = eng.flashColor || "#ffffff";
         ctx.fillRect(-2000, -2000, canvas.width + 4000, canvas.height + 4000);
         ctx.globalAlpha = 1;
+      }
+
+      // WebGL post-processing: bloom + chromatic aberration + vignette
+      const fx = postFXRef.current;
+      if (fx && fx.isAvailable) {
+        // bloom scales with combat intensity; chromAb scales with engine chromAb state
+        const bloom = 0.35 + intensityRef.current * 0.3;
+        const ca = eng.chromAb * 0.8;
+        fx.render(canvas, bloom, ca, 0.5);
       }
 
       // throttle snapshot
@@ -400,6 +437,12 @@ export default function ShadowFight() {
         {/* Canvas — fills the entire viewport */}
         <div ref={wrapRef} className="absolute inset-0 bg-black">
           <canvas ref={canvasRef} className="block" />
+          {/* WebGL post-processing overlay (bloom + chromatic aberration) */}
+          <canvas
+            ref={fxCanvasRef}
+            className="block"
+            style={{ pointerEvents: "none" }}
+          />
         </div>
 
         {/* Touch controls (mobile) */}

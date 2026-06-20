@@ -573,13 +573,29 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   ctx.shadowColor = rim;
   ctx.shadowBlur = 16;
 
-  const limb = (a: [number, number], b: [number, number], w: number) => {
-    ctx.strokeStyle = fill;
-    ctx.lineWidth = w;
+  // Tapered limb: a filled capsule that's thicker at the proximal joint (a)
+  // and thinner at the distal end (b), giving anatomically correct limbs.
+  const taperedLimb = (
+    a: [number, number],
+    b: [number, number],
+    wa: number,
+    wb: number,
+  ) => {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len; // perpendicular
+    const ny = dx / len;
+    ctx.fillStyle = fill;
     ctx.beginPath();
-    ctx.moveTo(a[0], a[1]);
-    ctx.lineTo(b[0], b[1]);
-    ctx.stroke();
+    // start at the side of a, go around a's cap, to the side of b, around b's cap
+    ctx.moveTo(a[0] + nx * wa, a[1] + ny * wa);
+    ctx.lineTo(b[0] + nx * wb, b[1] + ny * wb);
+    ctx.arc(b[0], b[1], wb, Math.atan2(ny, nx), Math.atan2(-ny, -nx), false);
+    ctx.lineTo(a[0] - nx * wa, a[1] - ny * wa);
+    ctx.arc(a[0], a[1], wa, Math.atan2(-ny, -nx), Math.atan2(ny, nx), false);
+    ctx.closePath();
+    ctx.fill();
   };
   const joint = (p: [number, number], r: number) => {
     ctx.fillStyle = fill;
@@ -588,18 +604,18 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
     ctx.fill();
   };
 
-  // back leg
-  limb(j.hip, j.bKnee, 15);
-  limb(j.bKnee, j.bFoot, 12);
-  foot(ctx, j.bFoot, 12);
-  // back arm
-  limb(j.bShoulder, j.bElbow, 10);
-  limb(j.bElbow, j.bHand, 8);
-  joint(j.bElbow, 3.8);
-  // torso
-  limb(j.hip, j.chest, 18);
+  // back leg — thigh tapers hip→knee, shin tapers knee→ankle
+  taperedLimb(j.hip, j.bKnee, 16, 13);
+  taperedLimb(j.bKnee, j.bFoot, 13, 9);
+  foot(ctx, j.bFoot, 10);
+  // back arm — upper arm tapers shoulder→elbow, forearm tapers elbow→wrist
+  taperedLimb(j.bShoulder, j.bElbow, 11, 8);
+  taperedLimb(j.bElbow, j.bHand, 8, 5);
+  joint(j.bElbow, 4);
+  // torso — tapers from hips (wide) to chest (narrower)
+  taperedLimb(j.hip, j.chest, 20, 14);
   // neck
-  limb(j.chest, [j.head[0], j.head[1] + HEAD_R - 2], 9);
+  taperedLimb(j.chest, [j.head[0], j.head[1] + HEAD_R - 2], 9, 7);
   // head
   ctx.fillStyle = fill;
   ctx.beginPath();
@@ -615,18 +631,18 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   if (inActive && (atk === "kick" || atk === "roundhouse")) {
     motionFan(ctx, j.fKnee, j.fFoot, 12, rim);
   }
-  limb(j.hip, j.fKnee, 15);
-  limb(j.fKnee, j.fFoot, 12);
-  joint(j.fKnee, 4);
-  foot(ctx, j.fFoot, 11);
+  taperedLimb(j.hip, j.fKnee, 16, 13);
+  taperedLimb(j.fKnee, j.fFoot, 13, 9);
+  joint(j.fKnee, 4.5);
+  foot(ctx, j.fFoot, 10);
 
   // front arm
   if (inActive && atk === "punch") {
     motionFan(ctx, j.fElbow, j.fHand, 8, rim);
   }
-  limb(j.fShoulder, j.fElbow, 10);
-  limb(j.fElbow, j.fHand, 8);
-  joint(j.fElbow, 3.8);
+  taperedLimb(j.fShoulder, j.fElbow, 11, 8);
+  taperedLimb(j.fElbow, j.fHand, 8, 5);
+  joint(j.fElbow, 4);
   joint(j.fHand, 3);
 
   // blade glint along the striking limb

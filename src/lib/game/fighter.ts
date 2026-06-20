@@ -10,13 +10,18 @@ import {
   poseFor,
 } from "./poses";
 
-export const GROUND_Y = 470; // virtual ground (canvas is scaled to fit)
+export const GROUND_Y = 470;
 export const WALK_SPEED = 182;
 export const JUMP_VEL = 640;
 export const GRAVITY = 1180;
 export const STAGE_LEFT = 80;
 export const STAGE_RIGHT = 880;
-export const ROLL_SPEED = 400; // quick dash speed during a roll
+export const ROLL_SPEED = 400;
+// physics tuning — momentum-based movement
+export const ACCEL = 1400; // ground acceleration (px/s²)
+export const AIR_ACCEL = 700; // air steering acceleration
+export const FRICTION = 1600; // ground deceleration when stopping (px/s²)
+export const JUMP_CUT = 0.35; // velocity multiplier when jump key released early
 
 export interface FighterOpts {
   x: number;
@@ -56,8 +61,9 @@ export class Fighter {
   blockHeld = false;
   invuln = 0;
   blade: boolean;
-  spin = 0; // whole-body rotation (radians) for flip/roll
+  spin = 0;
   rollDir: 1 | -1 = 1;
+  private jumpHeld = false; // tracks if up is still held (variable jump height)
 
   // buffered input edge
   private prevPunch = false;
@@ -440,22 +446,29 @@ export class Fighter {
       return;
     }
 
-    // Acrobatic flip jump (SF2-style). Press up to leap into a forward flip;
-    // holding a direction gives forward momentum.
+    // Acrobatic flip jump — variable height: hold up = higher, release = cut.
     if (input.up && this.onGround) {
       this.vy = -JUMP_VEL;
       this.onGround = false;
+      this.jumpHeld = true;
       let move = 0;
       if (input.left) move -= 1;
       if (input.right) move += 1;
       if (move !== 0) {
-        this.vx = move * WALK_SPEED * 1.15 * this.speedMul;
-        // face the direction of the flip
+        // give forward momentum but don't override existing velocity instantly
+        const target = move * WALK_SPEED * 1.1 * this.speedMul;
+        this.vx += (target - this.vx) * 0.5;
         this.facing = move >= 0 ? 1 : -1;
       }
       this.setState("jump");
       return;
     }
+    // variable jump height: if the player released up while still rising, cut velocity
+    if (!input.up && this.jumpHeld && !this.onGround && this.vy < 0) {
+      this.vy *= JUMP_CUT;
+      this.jumpHeld = false;
+    }
+    if (this.onGround) this.jumpHeld = false;
 
     // Rolling dodge (SF2-style). Dedicated roll key rolls toward the opponent;
     // holding down + a direction rolls that way. Quick, i-framed, evades hits.
@@ -487,34 +500,42 @@ export class Fighter {
         this.setState("idle");
     }
 
-    // Movement.
+    // Movement — momentum-based: accelerate toward target velocity, decelerate with friction.
     if (this.onGround) {
       let move = 0;
       if (input.left) move -= 1;
       if (input.right) move += 1;
       if (move !== 0) {
-        const speed = WALK_SPEED * this.speedMul;
-        // walking toward opponent = walk_fwd, away = walk_back (for anim flavor)
-        this.vx = move * speed;
+        const target = move * WALK_SPEED * this.speedMul;
+        // accelerate toward target velocity (not instant set)
+        const dv = target - this.vx;
+        const maxStep = ACCEL * dt;
+        if (Math.abs(dv) <= maxStep) this.vx = target;
+        else this.vx += Math.sign(dv) * maxStep;
         const toward = Math.sign(opp.x - this.x) === move ? 1 : -1;
         this.setState(toward === 1 ? "walk_fwd" : "walk_back");
         this.walkPhase += dt * 9 * Math.abs(move);
       } else {
-        this.vx *= 0.6;
+        // friction: decelerate toward 0
+        const maxStep = FRICTION * dt;
+        if (Math.abs(this.vx) <= maxStep) this.vx = 0;
+        else this.vx -= Math.sign(this.vx) * maxStep;
         if (this.state === "walk_fwd" || this.state === "walk_back")
           this.setState("idle");
       }
     } else {
-      // air control — preserve momentum; nudge toward held direction
+      // air control — accelerate toward held direction (weighty, preserves momentum)
       let move = 0;
       if (input.left) move -= 1;
       if (input.right) move += 1;
       if (move !== 0) {
         const target = move * WALK_SPEED * 0.85 * this.speedMul;
-        // ease toward target so air steering feels weighty, not snappy
-        this.vx += (target - this.vx) * Math.min(1, dt * 6);
+        const dv = target - this.vx;
+        const maxStep = AIR_ACCEL * dt;
+        if (Math.abs(dv) <= maxStep) this.vx = target;
+        else this.vx += Math.sign(dv) * maxStep;
       }
-      // if no direction held, keep current horizontal momentum (realistic)
+      // no direction held → keep horizontal momentum (realistic ballistic arc)
     }
 
     if (this.state === "idle") this.walkPhase += dt * 1.5;
@@ -543,9 +564,11 @@ export class Fighter {
       this.onGround = false;
     }
 
-    // friction when grounded & not walking/rolling
+    // friction when grounded & not walking/rolling — proper deceleration
     if (this.onGround && !this.isWalkingInput() && this.state !== "roll") {
-      this.vx *= 0.8;
+      const maxStep = FRICTION * 0.6 * dt;
+      if (Math.abs(this.vx) <= maxStep) this.vx = 0;
+      else this.vx -= Math.sign(this.vx) * maxStep;
     }
 
     // stage bounds
