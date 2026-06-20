@@ -101,12 +101,21 @@ export interface OpponentDef {
   hp: number;
   damageMul: number;
   speedMul: number;
-  aggression: number;
-  blockChance: number;
-  reaction: number;
-  combo: number;
+  aggression: number; // base attack tendency 0..1
+  blockChance: number; // base block/dodge probability 0..1
+  reaction: number; // seconds to react to player attacks
+  combo: number; // max consecutive attacks in a string
   blade?: boolean;
   bg: BackgroundId;
+  // ---- dynamic / advanced AI capabilities (scale with level) ----
+  whiffPunish?: number; // 0..1 chance to punish a missed player attack
+  antiAir?: number; // 0..1 chance to anti-air a jumping player
+  pressure?: number; // 0..1 tendency to maintain offensive pressure
+  mixup?: number; // 0..1 tendency to mix high/low/slow attacks
+  readDelay?: number; // extra reaction delay when reading player habits (s)
+  adaptive?: number; // 0..1 how much the AI adapts to repeated player patterns
+  rage?: number; // 0..1 how much aggression rises when low on HP
+  perfection?: number; // 0..1 chance to frame-perfectly block an unreactable string
 }
 
 export type Phase =

@@ -176,3 +176,32 @@ Stage Summary:
 - Fighter bodies rebuilt with Da Vinci proportions (~7.6 heads, correct segment ratios) and realistic martial-arts stance.
 - Animation applies the 12 principles (anticipation, follow-through, ease-in/out, weight shift) + biomechanics (hip rotation, weight transfer, counter-rotation) — visible in the punch coil-strike-recoil, the walk-cycle hip sway, and the idle weight-shift breathing.
 - Roll is now a dive-roll arc (lifts off ground mid-roll); jump flip is acrobatic with clean recovery.
+
+---
+Task ID: 16
+Agent: main
+Task: Increase difficulty with each level using dynamic rules — opponents fight better and better, very hard to defeat late.
+
+Work Log:
+- types.ts: extended OpponentDef with advanced AI capability fields that scale with level: whiffPunish, antiAir, pressure, mixup, readDelay, adaptive, rage, perfection.
+- engine.ts: rebalanced all 8 opponents into a steep escalating curve. Level 1 (Lynx) is forgiving (aggression 0.34, block 0.08, reaction 0.55s, no advanced capabilities). Each level adds: faster reaction, higher aggression/block, longer combos, and ramps the advanced fields. Level 8 (Titan): aggression 0.84, block 0.56, reaction 0.13s, whiffPunish 0.88, antiAir 0.82, pressure 0.82, mixup 0.78, adaptive 0.85, rage 0.7, perfection 0.55.
+- ai.ts (rewritten): dynamic, escalating AI with:
+  * Rage system: when HP < 30%, aggression + speed rise (scaled by `rage`).
+  * Whiff-punish: detects when the player's attack ends without hitting, dashes in and counter-attacks (scaled by `whiffPunish`).
+  * Anti-air: detects the player jumping nearby, jump-kicks to meet them (scaled by `antiAir`).
+  * Spacing/zoning: strong opponents hold optimal range instead of always rushing (scaled by `mixup`).
+  * Pressure strings: combo follow-ups with frame-tight gaps (high pressure → shorter recovery, scaled by `pressure`); high-pressure opponents interrupt their own block to counter.
+  * Mixups: alternates fast/slow + high/low attacks to break blocking (scaled by `mixup`); throws roundhouses as mixup finishers.
+  * Adaptive habit-reading: tracks the player's openings (punch/kick/roundhouse/jump/block counts). If the player blocks a lot → opens with heavy attacks to break guard. If the player jumps a lot → pre-empts with kicks. (scaled by `adaptive`).
+  * Frame-perfect blocking: at high levels, can block unreactable strings instantly (scaled by `perfection`).
+  * Decision cadence tightens with pressure (shorter gaps between decisions).
+- Verified via Agent Browser (passive 5-6s measurement + player-attack tests):
+  * L1 Lynx: 5 attacks/5s, 8 HP lost, 0 blocks vs 6 punches (took 18 dmg) — easy/beatable.
+  * L3 Crane: 6 attacks, 12 HP lost — moderate.
+  * L7 Shogun: 6 attacks, 19 HP lost (heavier hits) — hard.
+  * L8 Titan: 10 attacks, 22 HP lost, 7 blocks vs 6 punches (took only 2 dmg) — very hard.
+  Difficulty clearly escalates on both offense (more/faster attacks, more damage) and defense (blocking scales 0→7). No errors. Lint clean.
+
+Stage Summary:
+- 8 opponents now scale steeply in difficulty via dynamic AI rules: whiff-punish, anti-air, pressure strings, mixups, adaptive habit-reading, rage (low-HP comeback), and frame-perfect blocking.
+- Early opponents (Lynx, Bandit) are forgiving; late opponents (Shogun, Titan) are very hard to defeat — they block most attacks, punish whiffs, anti-air jumps, run pressure combos, and adapt to repeated patterns.
