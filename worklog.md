@@ -279,3 +279,26 @@ Stage Summary:
 - The intro is now a real movie: each of the 9 story beats paints a DIFFERENT scene that visually depicts its narration (oath at dawn → marching hunt → glowing seals → cheering village → gate meeting → demonic reflection → demon reveal → screaming crowd → final riverbank).
 - When the story says "villagers cheered him as a hero", the UI shows a village crowd with torches and huts; when it says "the cheers were screams", the same crowd flees in terror from a looming demon.
 - Cinematic crossfades, atmospheric layered visuals, and lower-third subtitles matching the reference image style.
+
+---
+Task ID: 20
+Agent: main
+Task: Make the gate section (where music intensifies, 51-83s) an intense fight scene instead of a static meeting.
+
+Work Log:
+- Song analysis: the 51-83s section is the longest (32s) and most musically intense (energy peaks at 51/54/81/83s, tempo ~107 BPM). A static "master waiting" scene didn't suit the fast-paced music — replaced with a choreographed sword fight.
+- story.ts: split Act V (51-83s) into two beats: "V — The Master" (51-62s, gate_meet tension) + "VI — The Clash" (62-83s, gate_fight). Renumbered later acts (VII Reflection, VIII Truth, IX Screams). New narration for the fight: "The shadow refused. The master drew his blade. / Steel rang on steel at the gate of shadow — / the last sealer against the thing that wore his student's face."
+- StoryIntro.tsx: added sceneGateFight — an ANIMATED fight at the gate:
+  * Two duelers (the shadow left/white-rimmed, the master right/amber-rimmed) face off before a pulsing red gate.
+  * Choreography cycle (~1.1s, synced to 2 beats at 107 BPM): approach (fighters dash together with motion trails) → clash (swords cross, gap closes to 26px) → spark burst → recoil (push apart) → reset.
+  * Spark burst on impact: bright white/silver radial flash core + 14 radiating additive-blend spark streaks + expanding impact ring, fading over ~0.04 of the cycle.
+  * The gate pulses red (sin wave), doors crack open with light pouring through, a red halo glows behind the fighters.
+  * Swords swing (raised during wind-up, strike down on clash); crossed sword-glow lines between fighters during the clash hold.
+  * Drifting red embers for atmosphere.
+- Added drawFighter helper: a dueling silhouette with a swinging sword arm driven by the cycle phase, facing direction, rim color.
+- Verified via Agent Browser: captured 8 rapid frames across the fight — confirmed the fighters animate from far-apart → close-together (clash) → apart, with a spark burst appearing on impact (frame 7). VLM confirmed: "a vivid, jagged burst of white and silver light, radiating outward... glowing embers scattering... swords locked in a firm cross... pulsating red gate." No errors. Lint clean.
+
+Stage Summary:
+- The 51-83s musical climax is now an intense animated sword fight at the gate (was a static meeting scene).
+- Choreographed clash cycles (approach → clash+spark → recoil) synced to the song's ~107 BPM tempo, with spark bursts, motion trails, a pulsing red gate, and swinging swords.
+- The fight visually depicts the narration ("Steel rang on steel at the gate of shadow").

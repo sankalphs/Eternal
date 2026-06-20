@@ -321,6 +321,9 @@ function drawScene(
     case "gate_meet":
       sceneGateMeet(ctx, t, W, H);
       break;
+    case "gate_fight":
+      sceneGateFight(ctx, t, W, H);
+      break;
     case "reflection_twist":
       sceneReflectionTwist(ctx, t, W, H);
       break;
@@ -601,6 +604,185 @@ function sceneGateMeet(ctx: CanvasRenderingContext2D, t: number, W: number, H: n
   // the hero approaching from the left
   silhouette(ctx, W * 0.22, baseY, 1.1, "#e2e8f0", true, false);
   emberDrift(ctx, t, W, H, 18, false);
+}
+
+// ---------- SCENE 5b: gate fight — INTENSE sword clash at the gate ----------
+// Two silhouettes (the shadow vs the master) duel with choreographed clashes,
+// spark bursts on impact, motion trails, and a pulsing gate behind them.
+function sceneGateFight(ctx: CanvasRenderingContext2D, t: number, W: number, H: number) {
+  // dark, intense sky with pulsing red from the gate
+  const pulse = 0.5 + 0.5 * Math.sin(t * 6);
+  gradSky(ctx, [[0, "#08040a"], [0.5, "#18060f"], [1, "#3a0a14"]], H);
+
+  const cx = W * 0.5;
+  const baseY = H * 0.8;
+
+  // the gate, pulsing with red light (cracking open)
+  ctx.fillStyle = "#000";
+  ctx.fillRect(cx - 90, baseY - 200, 16, 200);
+  ctx.fillRect(cx + 74, baseY - 200, 16, 200);
+  ctx.fillRect(cx - 90, baseY - 216, 180, 16);
+  // doors slightly open, red light pouring through
+  const openW = 8 + pulse * 6;
+  ctx.fillStyle = "#06030a";
+  ctx.fillRect(cx - 74 - openW/2, baseY - 196, 70, 196);
+  ctx.fillRect(cx + 4 + openW/2, baseY - 196, 70, 196);
+  // red gate light
+  const gl = ctx.createLinearGradient(0, baseY - 196, 0, baseY);
+  gl.addColorStop(0, `rgba(255,40,30,${0.5 + pulse * 0.4})`);
+  gl.addColorStop(1, "rgba(255,40,30,0)");
+  ctx.fillStyle = gl;
+  ctx.fillRect(cx - openW/2, baseY - 196, openW, 196);
+  // gate glow halo
+  const halo = ctx.createRadialGradient(cx, baseY - 100, 10, cx, baseY - 100, 180);
+  halo.addColorStop(0, `rgba(180,30,20,${0.3 + pulse * 0.2})`);
+  halo.addColorStop(1, "rgba(180,30,20,0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, W, H);
+
+  // ground
+  ctx.fillStyle = "#06030a";
+  ctx.fillRect(0, baseY, W, H - baseY);
+
+  // ---- fight choreography ----
+  // Each clash cycle: approach → clash (spark!) → recoil → reset.
+  // Cycle length ~1.1s (synced to ~107 BPM, 2 beats per clash).
+  const sceneT = t - 62; // time within the fight scene
+  const cycleDur = 1.1;
+  const cyc = (sceneT % cycleDur) / cycleDur; // 0..1 within a cycle
+  // 0-0.35: approach, 0.35-0.45: clash hold, 0.45-0.7: recoil, 0.7-1: reset
+  const clashing = cyc > 0.33 && cyc < 0.47;
+  const clashPt = cyc >= 0.34 && cyc <= 0.38; // brief spark window
+
+  // fighter positions: shadow (left) and master (right), centered on gate
+  const gap = clashing ? 26 : 70 + Math.sin(cyc * Math.PI) * 30; // close on clash
+  const shX = cx - gap;
+  const maX = cx + gap;
+  // lunge offsets
+  const lunge = clashing ? 8 : 0;
+  const shLunge = lunge;
+  const maLunge = -lunge;
+
+  // motion trails before the clash (approach phase)
+  if (cyc < 0.35 && !clashing) {
+    const trailA = 0.15 * (0.35 - cyc) / 0.35;
+    ctx.globalAlpha = trailA;
+    silhouette(ctx, shX - 18, baseY, 1.1, "#e2e8f0", true, false);
+    silhouette(ctx, maX + 18, baseY, 1.0, "#f59e0b", true, false);
+    ctx.globalAlpha = 1;
+  }
+
+  // draw both fighters
+  // the shadow (left, white-rimmed)
+  drawFighter(ctx, shX + shLunge, baseY, 1.1, "#e2e8f0", true, false, cyc, true);
+  // the master (right, amber-rimmed, hunched)
+  drawFighter(ctx, maX + maLunge, baseY, 1.0, "#f59e0b", true, false, cyc, false);
+
+  // ---- spark burst on clash ----
+  if (clashPt) {
+    const sparkX = cx;
+    const sparkY = baseY - 70;
+    const sa = 1 - (cyc - 0.34) / 0.04; // fade over the spark window
+    // bright flash core
+    const fg = ctx.createRadialGradient(sparkX, sparkY, 2, sparkX, sparkY, 60);
+    fg.addColorStop(0, `rgba(255,250,220,${sa})`);
+    fg.addColorStop(0.3, `rgba(255,180,80,${sa * 0.6})`);
+    fg.addColorStop(1, "rgba(255,120,40,0)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(sparkX - 60, sparkY - 60, 120, 120);
+    // radiating sparks
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 14; i++) {
+      const ang = (i / 14) * Math.PI * 2 + t;
+      const sp = 80 + Math.random() * 140;
+      const len = 8 + Math.random() * 10;
+      ctx.strokeStyle = `rgba(255,230,160,${sa * 0.8})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(sparkX, sparkY);
+      ctx.lineTo(sparkX + Math.cos(ang) * sp * 0.3, sparkY + Math.sin(ang) * sp * 0.3);
+      ctx.stroke();
+    }
+    ctx.restore();
+    // impact ring
+    ctx.strokeStyle = `rgba(255,220,150,${sa * 0.7})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(sparkX, sparkY, (1 - sa) * 40 + 8, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // crossed sword-glow lines between them during clash hold
+  if (clashing) {
+    ctx.strokeStyle = "rgba(220,235,255,0.6)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(shX + 14, baseY - 50);
+    ctx.lineTo(maX - 14, baseY - 90);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(shX + 14, baseY - 90);
+    ctx.lineTo(maX - 14, baseY - 50);
+    ctx.stroke();
+  }
+
+  emberDrift(ctx, t, W, H, 30, true);
+}
+
+// A duel fighter: silhouette with a swinging sword arm driven by the cycle.
+function drawFighter(
+  ctx: CanvasRenderingContext2D,
+  fx: number,
+  fy: number,
+  scale: number,
+  rim: string,
+  sword: boolean,
+  demon: boolean,
+  cyc: number,
+  facingRight: boolean,
+) {
+  ctx.save();
+  ctx.translate(fx, fy);
+  ctx.scale(scale, scale);
+  if (!facingRight) ctx.scale(-1, 1);
+  ctx.shadowColor = demon ? "#ef4444" : rim;
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = "#050505";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  // legs (stance)
+  ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(-7, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(6, 0); ctx.stroke();
+  // torso (slight forward lean)
+  ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(0, -38); ctx.lineTo(4, -70); ctx.stroke();
+  // head
+  ctx.fillStyle = "#050505";
+  ctx.beginPath(); ctx.arc(4, -78, 6, 0, Math.PI * 2); ctx.fill();
+  // back arm
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(4, -64); ctx.lineTo(-6, -54); ctx.lineTo(-8, -40); ctx.stroke();
+  // sword arm — swings on the clash (front arm raised then strikes down)
+  const swing = cyc > 0.2 && cyc < 0.45 ? 1 : 0; // raised during approach/clash
+  const sx = 4 + 8, sy = -64;
+  const handX = sx + (swing ? 10 : 4);
+  const handY = sy + (swing ? -10 : -4);
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(handX, handY); ctx.stroke();
+  // sword
+  if (sword) {
+    ctx.strokeStyle = demon ? "rgba(255,80,60,0.9)" : "rgba(220,235,255,0.8)";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(handX, handY);
+    // sword points forward+down on clash, up during wind-up
+    const tipX = handX + (swing ? 22 : 8);
+    const tipY = handY + (swing ? 18 : -22);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ---------- SCENE 6: reflection twist — reflection is NOT the hero ----------

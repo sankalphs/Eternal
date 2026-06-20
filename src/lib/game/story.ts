@@ -10,7 +10,8 @@ export type SceneKind =
   | "march_hunt" // silhouette marching across hills, demon shapes ahead
   | "seals" // a body with glowing seals, reflection fading
   | "village" // a village crowd cheering, torches
-  | "gate_meet" // the gate, an old master waiting
+  | "gate_meet" // the gate, an old master waiting — tension builds
+  | "gate_fight" // INTENSE sword fight at the gate — clashing blades, sparks
   | "reflection_twist" // a reflection in water that is NOT the hero
   | "demon_reveal" // the hero's silhouette splits to show the demon
   | "screaming" // the "cheering" crowd revealed as screaming, fleeing
@@ -70,7 +71,7 @@ export const STORY_BEATS: StoryBeat[] = [
   },
   {
     t: 51,
-    end: 83,
+    end: 62,
     act: "V — The Master",
     scene: "gate_meet",
     lines: [
@@ -80,20 +81,31 @@ export const STORY_BEATS: StoryBeat[] = [
     ],
   },
   {
+    t: 62,
+    end: 83,
+    act: "VI — The Clash",
+    scene: "gate_fight",
+    lines: [
+      "The shadow refused. The master drew his blade.",
+      "Steel rang on steel at the gate of shadow —",
+      "the last sealer against the thing that wore his student's face.",
+    ],
+  },
+  {
     t: 83,
     end: 103,
-    act: "VI — The Reflection",
+    act: "VII — The Reflection",
     scene: "reflection_twist",
     lines: [
-      "The master took the seals... and the shadow's face returned to flesh.",
-      "But it was not the swordsman's face that looked back from the water.",
-      "It was the master's.",
+      "The master fell. The shadow took the final seal.",
+      "And in the river below, the face that looked back...",
+      "was not the swordsman's. It was the master's.",
     ],
   },
   {
     t: 103,
     end: 121,
-    act: "VII — The Truth",
+    act: "VIII — The Truth",
     scene: "demon_reveal",
     lines: [
       "The swordsman had died at the very first gate.",
@@ -105,7 +117,7 @@ export const STORY_BEATS: StoryBeat[] = [
   {
     t: 121,
     end: 134,
-    act: "VIII — The Screams",
+    act: "IX — The Screams",
     scene: "screaming",
     lines: [
       "The 'demons' he slew were the real sealers —",
