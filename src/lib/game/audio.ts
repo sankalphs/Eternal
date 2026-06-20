@@ -1,31 +1,43 @@
-// Procedural Shadow-Fight-2-inspired fighting soundtrack, synthesized with the
-// Web Audio API. A structured, melodic composition in D Phrygian dominant:
-// a hypnotic ostinato arpeggio over the iconic i–VI–VII–i progression, a
-// haunting duduk lead theme, driving dhol/taiko drums with a gallop, sub bass,
-// pads, risers and a full drop. Combat-intensity layering + impact stingers.
+// Procedural soundtrack inspired by traditional Chinese music (think the
+// Shadow Fight 2 "Blood in the Bayou" mood) — synthesized with the Web Audio
+// API. D major pentatonic throughout (D E F# A B), with an erhu (bowed 2-string
+// fiddle) lead carrying a haunting melody, a guzheng (plucked zither) ostinato,
+// a dizi (bamboo flute) playing ornaments, and light percussion (temple block,
+// frame drum, big drum). Combat-intensity layering + impact stingers.
 // No external assets. Client-side only.
 
 type Wave = OscillatorType;
 
-// D Phrygian dominant scale across octaves (D, Eb, F, G, A, Bb, C).
-const SCALE = [
-  73.42, 77.78, 87.31, 98.0, 110.0, 116.54, 130.81, // D2..C3
-  146.83, 155.56, 174.61, 196.0, 220.0, 233.08, 261.63, // D3..C4
-  293.66, 311.13, 349.23, 392.0, 440.0, 466.16, 523.25, // D4..C5
-  587.33, 622.25, 698.46, 783.99, 880.0, // D5..A5
+// D major pentatonic scale across octaves (D E F# A B).
+// degree 0 = D3, each +1 steps up the pentatonic.
+const PENTA = [
+  146.83, 164.81, 185.0, 220.0, 246.94, // D3..B3
+  293.66, 329.63, 369.99, 440.0, 493.88, // D4..B4
+  587.33, 659.25, 739.99, 880.0, 987.77, // D5..B5
+  1174.66, 1318.51, 1479.98, 1760.0, 1975.53, // D6..B6
 ];
 function note(degree: number): number {
-  const n = ((degree % SCALE.length) + SCALE.length) % SCALE.length;
-  return SCALE[n];
+  const n = ((degree % PENTA.length) + PENTA.length) % PENTA.length;
+  return PENTA[n];
 }
 
-// chord root scale-degree per bar of the 4-bar cycle: Dm, Bb, C, Dm
-const CHORD_ROOTS = [0, 5, 6, 0];
-// arpeggio pattern (offsets from chord root), 8 per bar (8th notes)
-const ARP_PATTERN = [0, 4, 7, 4, 9, 7, 4, 7];
-// lead melody theme (scale degrees; -1 = rest). Two bars, played in the drop.
-const LEAD_BAR2 = [11, -1, 9, 10, 11, -1, 12, -1, 11, 10, 9, -1, 8, 9, 7, -1];
-const LEAD_BAR3 = [14, -1, 12, 11, 10, -1, 9, -1, 11, 10, 9, 8, 7, -1, -1, -1];
+// Bass roots per bar of the 4-bar vamp: D, A, B, A (root, fifth, sixth, fifth)
+const BASS_ROOTS = [73.42, 110.0, 123.47, 110.0];
+
+// Guzheng ostinato (pentatonic degrees), 8 per bar (8th notes). Hypnotic.
+const GUZHENG_ARP = [0, 2, 4, 5, 4, 2, 0, 2];
+
+// Erhu melody phrase, 4 bars of 8 notes (8th notes; -1 = rest). A gentle
+// pentatonic descent that peaks high in bar 2 then resolves down.
+const ERHU_BARS: number[][] = [
+  [5, -1, 7, -1, 6, 5, 4, -1],
+  [9, -1, 7, 6, 5, -1, 4, -1],
+  [10, -1, 9, -1, 7, 6, 5, -1],
+  [7, -1, 5, 4, 3, 2, 0, -1],
+];
+
+// Dizi ornament: a quick high flourish [deg, deg, deg] played between erhu phrases.
+const DIZI_FLOURISH = [12, 11, 9];
 
 export type HitKind = "punch" | "kick" | "roundhouse" | "block" | "ko";
 
@@ -44,9 +56,10 @@ export class GameAudio {
   private bar = 0;
   private running = false;
   private _volume = 0.55;
-  private intensity = 0; // 0..1 combat intensity
+  private intensity = 0;
+  private lastErhuFreq = 0; // for portamento between erhu notes
 
-  private tempo = 100; // BPM
+  private tempo = 84; // BPM — moderate, contemplative
   private get stepDur() {
     return 60 / this.tempo / 4; // 16th note
   }
@@ -84,17 +97,17 @@ export class GameAudio {
       this.master.gain.value = this._volume;
       const lp = this.ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.value = 6500;
-      lp.Q.value = 0.4;
+      lp.frequency.value = 7000;
+      lp.Q.value = 0.3;
       this.master.connect(lp);
       lp.connect(this.ctx.destination);
 
       this.musicBus = this.ctx.createGain();
-      this.musicBus.gain.value = 0.85;
+      this.musicBus.gain.value = 0.9;
       this.delay = this.ctx.createDelay(1.0);
-      this.delay.delayTime.value = 0.36;
+      this.delay.delayTime.value = 0.4;
       this.delayFb = this.ctx.createGain();
-      this.delayFb.gain.value = 0.32;
+      this.delayFb.gain.value = 0.34;
       this.musicBus.connect(this.master);
       this.musicBus.connect(this.delay);
       this.delay.connect(this.delayFb);
@@ -111,6 +124,7 @@ export class GameAudio {
     this.nextNoteTime = this.ctx.currentTime + 0.08;
     this.step = 0;
     this.bar = 0;
+    this.lastErhuFreq = 0;
     this.schedulerId = window.setInterval(() => this.scheduler(), 25);
   }
 
@@ -138,7 +152,7 @@ export class GameAudio {
     }
   }
 
-  // --- impact stingers ---
+  // --- impact stingers (combat SFX) ---
   hit(kind: HitKind) {
     if (!this.ctx || !this.master || !this.running) return;
     const t = this.ctx.currentTime + 0.001;
@@ -169,27 +183,25 @@ export class GameAudio {
     }
   }
 
-  // --- drone (continuous pad of root + fifth) ---
+  // --- drone (sustained tonic + fifth, the "guqin" bed) ---
   private startDrone() {
     if (!this.ctx || !this.musicBus) return;
     this.droneGain = this.ctx.createGain();
     this.droneGain.gain.value = 0.0;
-    this.droneGain.gain.setTargetAtTime(0.13, this.ctx.currentTime, 1.2);
+    this.droneGain.gain.setTargetAtTime(0.1, this.ctx.currentTime, 1.5);
     this.droneGain.connect(this.musicBus);
 
     const freqs: [number, number][] = [
-      [73.42, 1.0], // D2
-      [110.0, 0.6], // A2 (fifth)
-      [155.56, 0.18], // Eb3 (Phrygian color)
+      [73.42, 1.0], // D2 tonic
+      [110.0, 0.55], // A2 fifth
     ];
     for (const [f, g] of freqs) {
       const o = this.ctx.createOscillator();
-      o.type = "sawtooth";
+      o.type = "sine";
       o.frequency.value = f;
       const lp = this.ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.value = 260;
-      lp.Q.value = 0.6;
+      lp.frequency.value = 320;
       const og = this.ctx.createGain();
       og.gain.value = g;
       o.connect(og);
@@ -198,10 +210,11 @@ export class GameAudio {
       o.start();
       this.droneNodes.push(o);
     }
+    // slow tremolo
     this.lfo = this.ctx.createOscillator();
-    this.lfo.frequency.value = 0.16;
+    this.lfo.frequency.value = 0.14;
     const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = 0.04;
+    lfoGain.gain.value = 0.03;
     this.lfo.connect(lfoGain);
     lfoGain.connect(this.droneGain.gain);
     this.lfo.start();
@@ -239,221 +252,92 @@ export class GameAudio {
       this.scheduleStep(this.bar, this.step, this.nextNoteTime);
       this.nextNoteTime += this.stepDur;
       this.step = (this.step + 1) % 16;
-      if (this.step === 0) this.bar = (this.bar + 1) % 4;
+      if (this.step === 0) {
+        this.bar = (this.bar + 1) % 4;
+        if (this.bar === 0) this.lastErhuFreq = 0;
+      }
     }
   }
 
   private scheduleStep(bar: number, step: number, time: number) {
-    const root = CHORD_ROOTS[bar];
-    const drop = bar === 3; // full drop bar
-    const build = bar === 2; // build bar
+    // ---- percussion ----
+    // big drum (da-gu) on the downbeat of each bar
+    if (step === 0) this.bigDrum(time, 0.5);
+    // frame drum (bo) on quarter notes
+    if (step % 4 === 0) this.frameDrum(time, step === 0 ? 0.35 : 0.22);
+    // temple block (muyu) on offbeats — the signature Chinese woodblock pulse
+    if (step === 2 || step === 6 || step === 10 || step === 14) {
+      this.templeBlock(time, 0.16);
+    }
+    // extra intensity: busier frame drum + temple block
+    if (this.intensity > 0.45 && (step === 4 || step === 12)) {
+      this.frameDrum(time, 0.18);
+    }
+    if (this.intensity > 0.6 && step % 2 === 1) {
+      this.templeBlock(time, 0.08);
+    }
 
-    // ---- drums ----
-    // driving gallop kick
-    const kickSteps = [0, 3, 6, 8, 11, 14];
-    if (kickSteps.includes(step)) this.kick(time, step === 0 ? 1 : 0.85);
-    if (this.intensity > 0.45 && (step === 7 || step === 15)) this.kick(time, 0.55);
-    // snare backbeat
-    if (step === 4 || step === 12) this.snare(time);
-    // hats: 8th notes normally, 16ths at high intensity
-    if (step % 2 === 0) this.hat(time, step % 4 === 0 ? 0.16 : 0.1);
-    if (this.intensity > 0.5 && step % 2 === 1) this.hat(time, 0.07);
-    // ethnic clave tap on offbeats for flavor
-    if (step === 2 || step === 10) this.clave(time, 0.08);
-    // tom fill at the end of the build bar
-    if (build && step >= 13) this.tom(time, 220 - (step - 13) * 50, 0.16);
+    // ---- sub bass on the bar root (downbeat) ----
+    if (step === 0) this.subBass(BASS_ROOTS[bar], time);
 
-    // ---- sub bass on the root (quarter notes) ----
-    if (step % 4 === 0) this.subBass(note(root), time);
-
-    // ---- arpeggio ostinato (8th notes) ----
+    // ---- guzheng ostinato (8th notes) ----
     if (step % 2 === 0) {
-      const idx = (step / 2) % ARP_PATTERN.length;
-      const deg = root + ARP_PATTERN[idx] + 7; // +7 up an octave
-      this.pluck(note(deg), time, 0.22, "triangle", 0.13);
+      const idx = (step / 2) % GUZHENG_ARP.length;
+      const deg = GUZHENG_ARP[idx];
+      this.guzheng(note(deg + 2), time, 0.42, 0.12);
+    }
+    // intensity: 16th-note guzheng shimmer
+    if (this.intensity > 0.5 && step % 2 === 1) {
+      const idx = ((step - 1) / 2) % GUZHENG_ARP.length;
+      this.guzheng(note(GUZHENG_ARP[idx] + 5), time, 0.18, 0.05);
     }
 
-    // ---- sustained pad chord at the start of each bar ----
-    if (step === 0) {
-      this.pad([note(root + 7), note(root + 9), note(root + 11)], time, this.stepDur * 16);
+    // ---- erhu lead melody (8th notes, sustained) ----
+    const eDeg = ERHU_BARS[bar][Math.floor(step / 2)];
+    if (eDeg >= 0) {
+      const f = note(eDeg);
+      this.erhu(f, time, this.stepDur * 2.4, 0.13);
+      this.lastErhuFreq = f;
     }
 
-    // ---- riser into the drop (build bar, last half) ----
-    if (build && step === 8) this.riser(time, this.stepDur * 8);
-
-    // ---- lead melody in build (sparse) + drop (full) ----
-    if (build) {
-      const d = LEAD_BAR2[step];
-      if (d >= 0) this.lead(note(d), time, this.stepDur * 2.2, 0.1);
-    }
-    if (drop) {
-      const d = LEAD_BAR3[step];
-      if (d >= 0) this.lead(note(d), time, this.stepDur * (d === 7 ? 4 : 2.4), 0.14);
+    // ---- dizi ornament: a quick high flourish at the end of bars 1 and 3 ----
+    if ((bar === 1 || bar === 3) && step === 14) {
+      const base = time + this.stepDur;
+      DIZI_FLOURISH.forEach((d, i) => {
+        this.dizi(note(d), base + i * this.stepDur * 0.5, this.stepDur * 0.6, 0.08);
+      });
     }
 
-    // extra drive in the drop: double-time arp shimmer on odd steps
-    if (drop && step % 2 === 1) {
-      this.pluck(note(root + 11 + 7), time, 0.1, "sine", 0.05);
-    }
+    // ---- riser into the peak bar (end of bar 2) ----
+    if (bar === 1 && step === 12) this.riser(time, this.stepDur * 4);
   }
 
   // --- voices ---
-  private kick(time: number, vel: number) {
+  // erhu: bowed 2-string fiddle — sawtooth through a resonant bandpass, with a
+  // wide vibrato and portamento (pitch slide) from the previous note.
+  private erhu(freq: number, time: number, dur: number, gain: number) {
     if (!this.ctx || !this.musicBus) return;
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
-    o.type = "sine";
-    o.frequency.setValueAtTime(190, time);
-    o.frequency.exponentialRampToValueAtTime(42, time + 0.14);
-    g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(1.0 * vel, time + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.34);
-    const click = this.ctx.createOscillator();
-    const cg = this.ctx.createGain();
-    click.type = "square";
-    click.frequency.value = 1500;
-    cg.gain.setValueAtTime(0.28 * vel, time);
-    cg.gain.exponentialRampToValueAtTime(0.0001, time + 0.02);
-    click.connect(cg);
-    cg.connect(this.musicBus);
-    click.start(time);
-    click.stop(time + 0.03);
-    o.connect(g);
-    g.connect(this.musicBus);
-    o.start(time);
-    o.stop(time + 0.36);
-  }
-
-  private snare(time: number) {
-    if (!this.ctx || !this.musicBus) return;
-    const n = this.noiseBurst(time, 0.18, 0.5, 1700);
-    if (n) n.connect(this.musicBus);
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = "triangle";
-    o.frequency.setValueAtTime(240, time);
-    o.frequency.exponentialRampToValueAtTime(150, time + 0.1);
-    g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(0.26, time + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.14);
-    o.connect(g);
-    g.connect(this.musicBus);
-    o.start(time);
-    o.stop(time + 0.16);
-  }
-
-  private hat(time: number, gain: number) {
-    if (!this.ctx || !this.musicBus) return;
-    const n = this.noiseBurst(time, 0.04, gain * 0.6, 7000);
-    if (n) {
-      const hp = this.ctx.createBiquadFilter();
-      hp.type = "highpass";
-      hp.frequency.value = 6000;
-      n.disconnect();
-      n.connect(hp);
-      hp.connect(this.musicBus);
-    }
-  }
-
-  private clave(time: number, gain: number) {
-    if (!this.ctx || !this.musicBus) return;
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = "triangle";
-    o.frequency.setValueAtTime(880, time);
-    o.frequency.exponentialRampToValueAtTime(440, time + 0.04);
-    g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(gain, time + 0.002);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
-    o.connect(g);
-    g.connect(this.musicBus);
-    o.start(time);
-    o.stop(time + 0.08);
-  }
-
-  private tom(time: number, freq: number, gain: number) {
-    if (!this.ctx || !this.musicBus) return;
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = "sine";
-    o.frequency.setValueAtTime(freq, time);
-    o.frequency.exponentialRampToValueAtTime(freq * 0.6, time + 0.12);
-    g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(gain, time + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.2);
-    o.connect(g);
-    g.connect(this.musicBus);
-    o.start(time);
-    o.stop(time + 0.22);
-  }
-
-  private pluck(
-    freq: number,
-    time: number,
-    dur: number,
-    type: Wave,
-    gain: number,
-  ) {
-    if (!this.ctx || !this.musicBus) return;
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = type;
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(gain, time + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
     const f = this.ctx.createBiquadFilter();
     f.type = "bandpass";
-    f.frequency.value = freq * 2.2;
-    f.Q.value = 0.7;
-    o.connect(f);
-    f.connect(g);
-    g.connect(this.musicBus);
-    o.start(time);
-    o.stop(time + dur + 0.02);
-  }
-
-  private pad(freqs: number[], time: number, dur: number) {
-    if (!this.ctx || !this.musicBus) return;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(0.06, time + 0.4);
-    g.gain.setValueAtTime(0.06, time + dur - 0.5);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
-    const f = this.ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = 1400;
-    f.Q.value = 0.4;
-    g.connect(f);
-    f.connect(this.musicBus);
-    for (const fr of freqs) {
-      const o = this.ctx.createOscillator();
-      o.type = "sawtooth";
-      o.frequency.value = fr;
-      o.connect(g);
-      o.start(time);
-      o.stop(time + dur + 0.05);
-    }
-  }
-
-  private lead(freq: number, time: number, dur: number, gain: number) {
-    if (!this.ctx || !this.musicBus) return;
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    const f = this.ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = freq * 4;
-    f.Q.value = 6;
+    f.frequency.value = freq * 1.6;
+    f.Q.value = 3.5;
     o.type = "sawtooth";
-    o.frequency.value = freq;
+    // portamento from the previous note's pitch
+    const startF = this.lastErhuFreq > 0 ? this.lastErhuFreq : freq;
+    o.frequency.setValueAtTime(startF, time);
+    o.frequency.exponentialRampToValueAtTime(freq, time + 0.09);
+    // wide vibrato (erhu signature)
     const vib = this.ctx.createOscillator();
     const vibGain = this.ctx.createGain();
     vib.frequency.value = 5.5;
-    vibGain.gain.value = freq * 0.008;
+    vibGain.gain.value = freq * 0.012;
     vib.connect(vibGain);
     vibGain.connect(o.frequency);
+    // bowed envelope: smooth attack, sustain, smooth release
     g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(gain, time + 0.06);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.1);
     g.gain.setValueAtTime(gain, time + dur - 0.18);
     g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
     o.connect(f);
@@ -466,6 +350,134 @@ export class GameAudio {
     vib.stop(time + dur + 0.05);
   }
 
+  // guzheng: plucked zither — bright triangle + octave harmonic, fast decay.
+  private guzheng(freq: number, time: number, dur: number, gain: number) {
+    if (!this.ctx || !this.musicBus) return;
+    const o = this.ctx.createOscillator();
+    const o2 = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    const f = this.ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = freq * 5;
+    f.Q.value = 0.5;
+    o.type = "triangle";
+    o2.type = "sine";
+    o.frequency.value = freq;
+    o2.frequency.value = freq * 2;
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    const g2 = this.ctx.createGain();
+    g2.gain.value = 0.3;
+    o.connect(g);
+    o2.connect(g2);
+    g2.connect(g);
+    g.connect(f);
+    f.connect(this.musicBus);
+    o.start(time);
+    o2.start(time);
+    o.stop(time + dur + 0.02);
+    o2.stop(time + dur + 0.02);
+  }
+
+  // dizi: bamboo flute — sine + breath noise with a flutter (amplitude tremolo).
+  private dizi(freq: number, time: number, dur: number, gain: number) {
+    if (!this.ctx || !this.musicBus) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = freq;
+    const flutter = this.ctx.createOscillator();
+    const flutterGain = this.ctx.createGain();
+    flutter.frequency.value = 6.5;
+    flutterGain.gain.value = gain * 0.35;
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.04);
+    g.gain.setValueAtTime(gain, time + dur - 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    flutter.connect(flutterGain);
+    flutterGain.connect(g.gain);
+    o.connect(g);
+    g.connect(this.musicBus);
+    g.connect(this.delay!);
+    o.start(time);
+    o.stop(time + dur + 0.05);
+    flutter.start(time);
+    flutter.stop(time + dur + 0.05);
+    // breath noise
+    const n = this.noiseBurst(time, dur, 0.02, 1500);
+    if (n) {
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = freq;
+      bp.Q.value = 1.5;
+      n.disconnect();
+      n.connect(bp);
+      bp.connect(this.musicBus);
+    }
+  }
+
+  // temple block (muyu): woody knock — triangle blip with pitch drop + click.
+  private templeBlock(time: number, gain: number) {
+    if (!this.ctx || !this.musicBus) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = "triangle";
+    o.frequency.setValueAtTime(880, time);
+    o.frequency.exponentialRampToValueAtTime(620, time + 0.03);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
+    o.connect(g);
+    g.connect(this.musicBus);
+    o.start(time);
+    o.stop(time + 0.08);
+  }
+
+  // frame drum (bo): small hand drum — short sine pitch drop + noise body.
+  private frameDrum(time: number, gain: number) {
+    if (!this.ctx || !this.musicBus) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(190, time);
+    o.frequency.exponentialRampToValueAtTime(95, time + 0.08);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.14);
+    o.connect(g);
+    g.connect(this.musicBus);
+    o.start(time);
+    o.stop(time + 0.16);
+    const n = this.noiseBurst(time, 0.05, gain * 0.3, 250);
+    if (n) {
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 250;
+      bp.Q.value = 0.8;
+      n.disconnect();
+      n.connect(bp);
+      bp.connect(this.musicBus);
+    }
+  }
+
+  // big drum (da-gu): deeper, longer boom.
+  private bigDrum(time: number, gain: number) {
+    if (!this.ctx || !this.musicBus) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(130, time);
+    o.frequency.exponentialRampToValueAtTime(48, time + 0.18);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(gain, time + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.32);
+    o.connect(g);
+    g.connect(this.musicBus);
+    o.start(time);
+    o.stop(time + 0.34);
+  }
+
   private subBass(freq: number, time: number) {
     if (!this.ctx || !this.musicBus) return;
     const o = this.ctx.createOscillator();
@@ -473,12 +485,12 @@ export class GameAudio {
     o.type = "sine";
     o.frequency.value = freq;
     g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(0.2, time + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.42);
+    g.gain.exponentialRampToValueAtTime(0.18, time + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.6);
     o.connect(g);
     g.connect(this.musicBus);
     o.start(time);
-    o.stop(time + 0.44);
+    o.stop(time + 0.62);
   }
 
   private riser(time: number, dur: number) {
@@ -489,12 +501,12 @@ export class GameAudio {
     f.type = "bandpass";
     f.Q.value = 1.2;
     f.frequency.setValueAtTime(300, time);
-    f.frequency.exponentialRampToValueAtTime(6000, time + dur);
+    f.frequency.exponentialRampToValueAtTime(5500, time + dur);
     n.disconnect();
     n.connect(f);
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(0.22, time + dur);
+    g.gain.exponentialRampToValueAtTime(0.18, time + dur);
     f.connect(g);
     g.connect(this.musicBus);
   }

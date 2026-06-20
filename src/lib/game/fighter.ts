@@ -12,12 +12,11 @@ import {
 
 export const GROUND_Y = 470; // virtual ground (canvas is scaled to fit)
 export const WALK_SPEED = 182;
-export const JUMP_VEL = 470;
-export const GRAVITY = 1500;
+export const JUMP_VEL = 500;
+export const GRAVITY = 1380;
 export const STAGE_LEFT = 70;
 export const STAGE_RIGHT = 890;
 export const ROLL_SPEED = 380; // quick dash speed during a roll
-export const SPIN_SPEED = Math.PI * 2 * 1.5; // rotations per second for flip/roll
 
 export interface FighterOpts {
   x: number;
@@ -99,6 +98,8 @@ export class Fighter {
     this.blockHeld = false;
     this.invuln = 0;
     this.downTimer = 0;
+    this.spin = 0;
+    this.rollDir = 1;
     this.hp = this.maxHp;
   }
 
@@ -108,6 +109,15 @@ export class Fighter {
 
   get progress(): number {
     return this.dur > 0 ? clamp(this.stateTime / this.dur, 0, 1) : 0;
+  }
+
+  // Normalized air progress for the flip jump: 0 at launch, 0.5 at apex,
+  // 1 at landing. Driven by vertical velocity so the tuck & spin always
+  // track the actual arc (and reset to 0 the instant the fighter lands).
+  get airProgress(): number {
+    if (this.onGround) return 1;
+    const ap = (JUMP_VEL + this.vy) / (2 * JUMP_VEL);
+    return clamp(ap, 0, 1);
   }
 
   canAct(): boolean {
@@ -254,6 +264,7 @@ export class Fighter {
       time: this.stateTime,
       walkPhase: this.walkPhase,
       crouchAmt: this.crouchAmt,
+      airTuck: this.state === "jump" ? Math.sin(this.airProgress * Math.PI) : 0,
     });
   }
 
@@ -310,9 +321,16 @@ export class Fighter {
       this.facing = opp.x >= this.x ? 1 : -1;
     }
 
-    // accumulate body spin for acrobatic states (flip jump / roll)
-    if (this.state === "jump" || this.state === "roll") {
-      this.spin += dt * SPIN_SPEED * this.facing;
+    // body rotation for acrobatic states — driven by progress so it always
+    // snaps back to 0 the instant the state ends (no stale "bent" pose).
+    if (this.state === "jump") {
+      // one clean forward flip over the whole arc
+      this.spin = this.airProgress * Math.PI * 2 * this.facing;
+    } else if (this.state === "roll") {
+      // exactly one revolution over the roll
+      this.spin = this.progress * Math.PI * 2 * this.rollDir;
+    } else {
+      this.spin = 0;
     }
 
     // Knockdown / getup handling.

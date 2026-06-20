@@ -110,3 +110,22 @@ Stage Summary:
 - Music: now a structured, melodic SF2-style fighting song (Phrygian dominant i–VI–VII–i, ostinato arp, duduk lead theme, full tribal drums, riser+drop, intensity layering) — much more song-like and memorable than before.
 - Movement: up = acrobatic forward-flip jump (tucked + body rotation, SF2-style); E/O or down+direction = rolling dodge (quick tucked dash with full i-frames that evades all hits). AI also roll-dodges.
 - Lint clean, dev server healthy, browser-verified.
+
+---
+Task ID: 13
+Agent: main
+Task: Fix bent/stuck pose after jumping (persisting across rounds), make flip-jump + roll realistic, and rework music to traditional-Chinese style.
+
+Work Log:
+- ROOT CAUSE of bent/stuck pose: `spin` was accumulated (`this.spin += dt * SPIN_SPEED * facing`) and `reset()` never cleared it. If a round ended mid-jump (or the fighter was hit mid-jump and state left "jump"), the stale spin value persisted — the fighter stayed rotated ("bent") and carried over into the next round.
+- fighter.ts FIX: spin is now COMPUTED each frame from state progress (no accumulation): jump → airProgress*2π*facing; roll → progress*2π*rollDir; else 0. Added airProgress getter (from vy: 0 at launch, 0.5 apex, 1 landing). reset() now clears spin=0 and rollDir=1. Removed SPIN_SPEED constant. Tuned JUMP_VEL=500, GRAVITY=1380 (longer air time for a readable flip). Removed redundant jump() method.
+- poses.ts FIX: added airTuck to PoseCtx (driven by airProgress). Reworked jump pose to use airTuck (sin(airProgress*π)) — tuck builds to peak at the apex then releases on the way down (realistic). Reworked roll pose: lower to ground (hipDrop 38), tighter tuck, exactly one revolution. pose() passes airTuck.
+- render.ts: no change needed (still reads f.spin, now computed; rotation around hip stays).
+- audio.ts (rewritten): traditional-Chinese-inspired soundtrack in D major pentatonic (D E F# A B). Voices: erhu (bowed 2-string fiddle lead — sawtooth through resonant bandpass, wide 5.5Hz vibrato, portamento between notes, bowed envelope), guzheng (plucked zither ostinato — triangle + octave harmonic, fast decay), dizi (bamboo flute — sine + breath noise + 6.5Hz flutter tremolo), temple block/muyu (woody 880→620Hz triangle blip), frame drum/bo (small 190→95Hz sine + noise), big drum/da-gu (130→48Hz boom), sub bass, guqin-style drone (D2+A2 sine). 4-bar vamp (D-A-B-A roots), erhu plays a 4-bar descending pentatonic melody, dizi ornaments between phrases, riser before peak. 84 BPM, combat-intensity layering (busier frame drum + temple block + 16th guzheng shimmer). Kept impact stingers (hit/ko SFX).
+- Verified via Agent Browser: after a clean jump, player returns to idle with spin=0 (VLM confirms upright stance, no bent pose); after a roll, state→idle spin=0; cross-round startRound()→reset() clears spin=0 rollDir=1; real gameplay tap-jump + tap-roll both recover cleanly (spin=0 even when hit mid-action); improved Chinese music plays with no errors. Lint clean.
+
+Stage Summary:
+- BUG FIXED: fighter no longer stays bent after jumping; pose resets to upright on landing and across rounds (spin computed from progress, cleared in reset).
+- REALISM: flip jump now tucks via physics-driven airTuck (peaks at apex, releases on descent) with exactly one clean rotation; roll is a low tucked ball with exactly one revolution.
+- MUSIC: traditional Chinese ensemble (erhu lead + guzheng ostinato + dizi flute + temple block/frame drum/big drum) in D major pentatonic — melodic, haunting, contemplative.
+- Lint clean, dev server healthy, browser-verified.

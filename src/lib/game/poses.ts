@@ -66,6 +66,7 @@ export interface PoseCtx {
   time: number; // seconds in state (for procedural loops)
   walkPhase: number;
   crouchAmt: number; // 0..1 how crouched
+  airTuck: number; // 0..1 flip-jump tuck (peaks at apex)
 }
 
 // Returns the pose for the current state. Procedural for idle/walk/crouch;
@@ -117,42 +118,41 @@ export function poseFor(c: PoseCtx): Pose {
       return withBase(target);
     }
     case "jump": {
-      // Acrobatic forward flip: tuck hard (knees to chest, arms in). The body
-      // rotation (spin) is applied by the renderer, so the pose just tucks.
-      const jp = c.p;
-      // tuck peaks mid-flight
-      const tuck = Math.sin(Math.min(jp, 1) * Math.PI);
+      // Acrobatic forward flip. The tuck is driven by air progress (peaks at
+      // the apex via vertical velocity) so it builds, holds, then releases —
+      // the body rotation (spin) is applied by the renderer.
+      const tuck = c.airTuck;
       return {
         ...BASE,
-        hipDrop: -4 - 6 * tuck,
-        torsoLean: 0.15 + 0.3 * tuck,
-        headTilt: 0.25 * tuck,
-        bThigh: -0.1 + 1.55 * tuck,
-        bShin: -0.1 + 1.9 * tuck,
-        fThigh: 0.2 + 1.65 * tuck,
-        fShin: 0.2 + 2.0 * tuck,
-        fArm: BASE.fArm - 1.1 * tuck,
-        bArm: BASE.bArm - 1.1 * tuck,
-        fFore: 1.5 + 0.3 * tuck,
-        bFore: 1.6 + 0.3 * tuck,
+        hipDrop: -3 - 9 * tuck,
+        torsoLean: 0.18 + 0.4 * tuck,
+        headTilt: 0.3 * tuck,
+        bThigh: -0.1 + 1.8 * tuck,
+        bShin: -0.1 + 2.1 * tuck,
+        fThigh: 0.2 + 1.9 * tuck,
+        fShin: 0.2 + 2.2 * tuck,
+        fArm: BASE.fArm - 1.3 * tuck,
+        bArm: BASE.bArm - 1.3 * tuck,
+        fFore: 1.4 + 0.5 * tuck,
+        bFore: 1.5 + 0.5 * tuck,
       };
     }
     case "roll": {
-      // Tucked ball: everything curled tight. Spin (renderer) does the roll.
+      // Tucked ball low to the ground; one clean revolution (spin in renderer).
       const tuck = Math.sin(Math.min(c.p, 1) * Math.PI);
       return {
         ...BASE,
-        hipDrop: 26 - 6 * tuck,
-        torsoLean: 0.5 + 0.4 * tuck,
-        headTilt: 0.4 + 0.3 * tuck,
-        bThigh: 1.5 + 0.2 * tuck,
-        bShin: 2.4,
-        fThigh: 1.7 + 0.2 * tuck,
-        fShin: 2.5,
-        fArm: 1.3,
-        fFore: 1.2,
-        bArm: 1.0,
-        bFore: 1.1,
+        hipDrop: 38 - 8 * tuck,
+        torsoLean: 0.65 + 0.4 * tuck,
+        headTilt: 0.55 + 0.3 * tuck,
+        bThigh: 1.8 + 0.2 * tuck,
+        bShin: 2.55,
+        fThigh: 2.0 + 0.2 * tuck,
+        fShin: 2.65,
+        fArm: 1.45,
+        fFore: 1.35,
+        bArm: 1.15,
+        bFore: 1.25,
       };
     }
     case "punch": {
