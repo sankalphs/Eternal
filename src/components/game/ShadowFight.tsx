@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GameEngine, OPPONENTS, ROUNDS_TO_WIN } from "@/lib/game/engine";
 import { render, VIRTUAL_H, VIRTUAL_W } from "@/lib/game/render";
 import { GameAudio } from "@/lib/game/audio";
-import type { InputState, Phase } from "@/lib/game/types";
+import type { BackgroundId, InputState, Phase } from "@/lib/game/types";
 
 interface Snapshot {
   phase: Phase;
@@ -70,6 +70,10 @@ export default function ShadowFight() {
   const [eng] = useState(() => new GameEngine());
   const [audio] = useState(() => new GameAudio());
   const [muted, setMuted] = useState(false);
+  const intensityRef = useRef(0.12);
+  const [view, setView] = useState<"menu" | "select">("menu");
+  const [selOpp, setSelOpp] = useState(0);
+  const [selScene, setSelScene] = useState<BackgroundId | "auto">("auto");
 
   const keysRef = useRef<InputState>({
     left: false,
@@ -116,10 +120,40 @@ export default function ShadowFight() {
 
       eng.update(dt);
 
+      // drain VFX events -> fire audio stingers + combat intensity
+      let bump = 0;
+      for (const ev of eng.events) {
+        if (ev.kind === "ko") {
+          audio.hit("ko");
+          bump = Math.max(bump, 1);
+        } else if (ev.kind === "heavy") {
+          audio.hit(ev.hitType === "roundhouse" ? "roundhouse" : "kick");
+          bump = Math.max(bump, 0.75);
+        } else if (ev.kind === "hit") {
+          audio.hit(ev.hitType ?? "punch");
+          bump = Math.max(bump, 0.45);
+        } else if (ev.kind === "block") {
+          audio.hit("block");
+          bump = Math.max(bump, 0.2);
+        }
+      }
+      if (eng.events.length) eng.events.length = 0;
+      // combat intensity: bump on hits, decay toward ambient
+      intensityRef.current = Math.max(
+        intensityRef.current * 0.92 - 0.08 * dt,
+        0.12,
+      );
+      if (bump > 0) intensityRef.current = Math.min(1, Math.max(intensityRef.current, bump));
+      audio.setIntensity(intensityRef.current);
+
       // render
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const sx = canvas.width / VIRTUAL_W;
-      ctx.setTransform(sx, 0, 0, sx, 0, 0);
+      // punch-zoom around center
+      const z = 1 + eng.zoom * 0.07;
+      const tx = sx * (VIRTUAL_W * (1 - z)) / 2;
+      const ty = sx * (VIRTUAL_H * (1 - z)) / 2;
+      ctx.setTransform(sx * z, 0, 0, sx * z, tx, ty);
       // screen shake
       if (eng.shake > 0) {
         const s = eng.shake;
@@ -128,15 +162,16 @@ export default function ShadowFight() {
           (Math.random() - 0.5) * s,
         );
       }
-      // hit flash
-      if (eng.flash > 0) {
-        ctx.save();
-      }
+      ctx.save();
       render(ctx, eng);
+      ctx.restore();
+
+      // colored impact flash
       if (eng.flash > 0) {
-        ctx.restore();
-        ctx.fillStyle = `rgba(255,255,255,${eng.flash * 1.5})`;
+        ctx.globalAlpha = Math.min(1, eng.flash * 1.6);
+        ctx.fillStyle = eng.flashColor || "#ffffff";
         ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+        ctx.globalAlpha = 1;
       }
 
       // throttle snapshot
@@ -153,7 +188,7 @@ export default function ShadowFight() {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [eng]);
+  }, [eng, audio]);
 
   // ---- keyboard ----
   useEffect(() => {
@@ -204,6 +239,21 @@ export default function ShadowFight() {
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
   }, [eng, audio, muted]);
+  const startSelect = useCallback(() => {
+    eng.startMatchWith(
+      selOpp,
+      selScene === "auto" ? null : selScene,
+    );
+    setStarted(true);
+    setSnap(snapFrom(eng));
+    if (!muted) void audio.start();
+  }, [eng, audio, muted, selOpp, selScene]);
+  const backToMenu = useCallback(() => {
+    eng.toMenu();
+    setStarted(false);
+    setView("menu");
+    setSnap(snapFrom(eng));
+  }, [eng]);
   const nextOpp = useCallback(() => {
     eng.nextOpponent();
     setSnap(snapFrom(eng));
@@ -351,7 +401,19 @@ export default function ShadowFight() {
       </div>
 
       {/* Phase panels */}
-      {showMenu && <MenuPanel onStart={start} />}
+      {showMenu && view === "menu" && (
+        <MenuPanel onStart={start} onSelect={() => setView("select")} />
+      )}
+      {showMenu && view === "select" && (
+        <SelectPanel
+          selOpp={selOpp}
+          selScene={selScene}
+          onOpp={setSelOpp}
+          onScene={setSelScene}
+          onBack={() => setView("menu")}
+          onFight={startSelect}
+        />
+      )}
       {showMatchEnd && (
         <EndPanel
           title="VICTORY"
@@ -359,6 +421,7 @@ export default function ShadowFight() {
           accent="#fbbf24"
           info={`Best combo: ${snap.maxCombo} hits`}
           primary={{ label: "Next Opponent", onClick: nextOpp }}
+          secondary={{ label: "Main Menu", onClick: backToMenu }}
         />
       )}
       {showGameOver && (
@@ -368,7 +431,7 @@ export default function ShadowFight() {
           accent="#f87171"
           info={`Best combo: ${snap.maxCombo} hits`}
           primary={{ label: "Try Again", onClick: retry }}
-          secondary={{ label: "Restart Tournament", onClick: restart }}
+          secondary={{ label: "Main Menu", onClick: backToMenu }}
         />
       )}
       {showChampion && (
@@ -378,6 +441,7 @@ export default function ShadowFight() {
           accent="#fbbf24"
           info={`Largest combo: ${snap.maxCombo} hits`}
           primary={{ label: "Play Again", onClick: restart }}
+          secondary={{ label: "Main Menu", onClick: backToMenu }}
         />
       )}
 
@@ -503,7 +567,13 @@ function TouchControls({
   );
 }
 
-function MenuPanel({ onStart }: { onStart: () => void }) {
+function MenuPanel({
+  onStart,
+  onSelect,
+}: {
+  onStart: () => void;
+  onSelect: () => void;
+}) {
   return (
     <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/80 backdrop-blur p-5 sm:p-8">
       <div className="text-center mb-5">
@@ -523,45 +593,18 @@ function MenuPanel({ onStart }: { onStart: () => void }) {
         earns the title of Shadow Lord.
       </p>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 max-w-3xl mx-auto mb-6">
-        {OPPONENTS.map((o, i) => (
-          <div
-            key={o.name}
-            className="rounded-xl border border-white/10 bg-black/40 p-3 text-center"
-            style={{ boxShadow: `inset 0 0 20px ${o.rim}22` }}
-          >
-            <div className="flex items-center justify-center gap-1.5 mb-1.5">
-              <span className="text-[10px] font-mono text-zinc-600">
-                {i + 1}
-              </span>
-              <div
-                className="w-7 h-7 rounded-full"
-                style={{
-                  background: o.rim,
-                  boxShadow: `0 0 14px ${o.rim}`,
-                }}
-              />
-              {o.blade && (
-                <span className="text-[9px] text-zinc-500" title="armed">
-                  ⚔
-                </span>
-              )}
-            </div>
-            <div className="text-xs font-bold text-white">{o.name}</div>
-            <div className="text-[10px] text-zinc-500">{o.title}</div>
-            <div className="text-[9px] text-zinc-600 mt-0.5 capitalize">
-              {o.bg} arena
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="text-center">
+      <div className="text-center flex flex-wrap gap-3 justify-center mb-6">
         <button
           onClick={onStart}
           className="px-8 py-3 rounded-full bg-gradient-to-r from-amber-500 to-rose-600 text-white font-black tracking-widest text-lg hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-rose-900/50"
         >
           ENTER THE ARENA
+        </button>
+        <button
+          onClick={onSelect}
+          className="px-6 py-3 rounded-full border border-white/20 text-white font-bold tracking-wide hover:bg-white/10 active:scale-95 transition"
+        >
+          Choose Opponent &amp; Arena
         </button>
       </div>
 
@@ -576,6 +619,139 @@ function MenuPanel({ onStart }: { onStart: () => void }) {
         <Control keys="Crouch/Jump" label="Dodge hits" />
       </div>
     </div>
+  );
+}
+
+const SCENES: { id: BackgroundId; label: string }[] = [
+  { id: "sunset", label: "Sunset" },
+  { id: "desert", label: "Desert" },
+  { id: "temple", label: "Temple" },
+  { id: "bamboo", label: "Bamboo" },
+  { id: "moon", label: "Moonlit" },
+  { id: "volcano", label: "Volcano" },
+  { id: "snow", label: "Snow" },
+];
+
+function SelectPanel({
+  selOpp,
+  selScene,
+  onOpp,
+  onScene,
+  onBack,
+  onFight,
+}: {
+  selOpp: number;
+  selScene: BackgroundId | "auto";
+  onOpp: (i: number) => void;
+  onScene: (s: BackgroundId | "auto") => void;
+  onBack: () => void;
+  onFight: () => void;
+}) {
+  return (
+    <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/85 backdrop-blur p-5 sm:p-7">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+          SELECT BATTLE
+        </h2>
+        <button
+          onClick={onBack}
+          className="text-xs sm:text-sm text-zinc-400 hover:text-white border border-white/15 rounded-full px-3 py-1.5"
+        >
+          ← Back
+        </button>
+      </div>
+
+      {/* Opponent picker */}
+      <div className="mb-5">
+        <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">
+          Opponent
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {OPPONENTS.map((o, i) => {
+            const active = selOpp === i;
+            return (
+              <button
+                key={o.name}
+                onClick={() => onOpp(i)}
+                className={`rounded-xl border p-2.5 text-center transition ${
+                  active
+                    ? "bg-white/10 border-white/60"
+                    : "bg-black/40 border-white/10 hover:border-white/30"
+                }`}
+                style={
+                  active
+                    ? { boxShadow: `0 0 18px ${o.rim}66, inset 0 0 16px ${o.rim}22` }
+                    : undefined
+                }
+              >
+                <div
+                  className="w-7 h-7 mx-auto mb-1 rounded-full"
+                  style={{ background: o.rim, boxShadow: `0 0 12px ${o.rim}` }}
+                />
+                <div className="text-xs font-bold text-white">{o.name}</div>
+                <div className="text-[10px] text-zinc-500 truncate">
+                  {o.title}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Scene picker */}
+      <div className="mb-6">
+        <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">
+          Arena
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <SceneChip
+            active={selScene === "auto"}
+            onClick={() => onScene("auto")}
+            label={`Auto (${OPPONENTS[selOpp].bg})`}
+          />
+          {SCENES.map((s) => (
+            <SceneChip
+              key={s.id}
+              active={selScene === s.id}
+              onClick={() => onScene(s.id)}
+              label={s.label}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="text-center">
+        <button
+          onClick={onFight}
+          className="px-8 py-3 rounded-full bg-gradient-to-r from-amber-500 to-rose-600 text-white font-black tracking-widest text-lg hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-rose-900/50"
+        >
+          FIGHT {OPPONENTS[selOpp].name.toUpperCase()}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SceneChip({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+        active
+          ? "bg-white/15 border-white/60 text-white"
+          : "bg-black/40 border-white/10 text-zinc-400 hover:text-white hover:border-white/30"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

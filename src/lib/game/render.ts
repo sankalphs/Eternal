@@ -64,17 +64,22 @@ function computeJoints(f: Fighter): Joints {
 }
 
 export function render(ctx: CanvasRenderingContext2D, eng: GameEngine) {
-  const bg: BackgroundId = eng.opponent.bg ?? "sunset";
+  const bg: BackgroundId = eng.scene;
   drawScene(ctx, eng, bg);
 
   // ground contact shadows (drawn on the ground, behind fighters)
   drawGroundShadow(ctx, eng.player);
   drawGroundShadow(ctx, eng.enemy);
 
+  // energy auras behind fighters (attacking / low HP glow)
+  drawAura(ctx, eng.player);
+  drawAura(ctx, eng.enemy);
+
   // draw fighters back-to-front
   const order = [eng.player, eng.enemy].sort((a, b) => a.x - b.x);
   for (const f of order) drawFighter(ctx, f);
 
+  drawShockwaves(ctx, eng);
   drawParticles(ctx, eng);
   drawFloatingText(ctx, eng);
   drawVignette(ctx);
@@ -504,6 +509,43 @@ function drawGroundShadow(ctx: CanvasRenderingContext2D, f: Fighter) {
   ctx.restore();
 }
 
+// pulsing energy aura: strong when attacking, faint + reddish when low HP.
+function drawAura(ctx: CanvasRenderingContext2D, f: Fighter) {
+  const attacking = f.isAttacking();
+  const lowHp = f.hp > 0 && f.hp / f.maxHp < 0.3;
+  if (!attacking && !lowHp) return;
+  const cx = f.x;
+  const cy = f.y - 60;
+  let alpha = 0;
+  let color = f.rim;
+  if (attacking) {
+    alpha = 0.5;
+  }
+  if (lowHp) {
+    alpha = Math.max(alpha, 0.35 + 0.2 * Math.sin(f.stateTime * 8));
+    color = "#ef4444";
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(cx, cy, 6, cx, cy, 70);
+  g.addColorStop(0, hexA(color, alpha));
+  g.addColorStop(1, hexA(color, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 70, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// hex color (#rrggbb) -> rgba string with given alpha
+function hexA(hex: string, a: number): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16) || 255;
+  const g = parseInt(h.substring(2, 4), 16) || 255;
+  const b = parseInt(h.substring(4, 6), 16) || 255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   const j = computeJoints(f);
   const rim = f.rim;
@@ -657,31 +699,86 @@ function foot(ctx: CanvasRenderingContext2D, foot: [number, number], w: number) 
   ctx.fill();
 }
 
+function drawShockwaves(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const s of eng.shockwaves) {
+    const t = s.life / s.maxLife;
+    const a = t * 0.9;
+    // outer glow ring
+    ctx.strokeStyle = hexA(s.color, a);
+    ctx.lineWidth = s.width * t + 1;
+    ctx.shadowColor = s.color;
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.stroke();
+    // inner thin bright ring
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(255,255,255,${a * 0.8})`;
+    ctx.lineWidth = Math.max(1, s.width * 0.4 * t);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.shadowBlur = 0;
+}
+
 function drawParticles(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+  // additive pass for bright energy particles (sparks, streaks, rings)
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
   for (const p of eng.particles) {
     const t = p.life / p.maxLife;
     if (p.kind === "ring") {
       ctx.strokeStyle = p.color;
       ctx.globalAlpha = t;
       ctx.lineWidth = 3 * t + 1;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 12;
       ctx.beginPath();
       ctx.arc(p.x, p.y, (1 - t) * 40 + 6, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.globalAlpha = 1;
-    } else if (p.kind === "dust") {
-      ctx.fillStyle = p.color;
+      ctx.shadowBlur = 0;
+    } else if (p.kind === "streak") {
+      // elongated energy streak pointing along its velocity
+      const len = p.size;
+      const sp = Math.hypot(p.vx, p.vy) || 1;
+      const ux = p.vx / sp;
+      const uy = p.vy / sp;
+      ctx.strokeStyle = p.color;
       ctx.globalAlpha = t;
+      ctx.lineWidth = 2.4 * t + 0.6;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    } else {
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - ux * len, p.y - uy * len);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    } else if (p.kind === "spark") {
       ctx.fillStyle = p.color;
       ctx.globalAlpha = t;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 8;
       ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
     }
   }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  // dust (normal blend, soft)
+  for (const p of eng.particles) {
+    if (p.kind !== "dust") continue;
+    const t = p.life / p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = t;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawFloatingText(ctx: CanvasRenderingContext2D, eng: GameEngine) {

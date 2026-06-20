@@ -71,3 +71,21 @@ Stage Summary:
 - Realism upgrades: ground shadows, motion blur, joint caps, blade glints, richer backgrounds.
 - Procedural oriental soundtrack (drone + taiko + koto + flute) with mute toggle, starts on first interaction.
 - Lint clean, dev server healthy, browser-verified.
+
+---
+Task ID: 11
+Agent: main
+Task: Improve music (SF2 fighting theme), add opponent + scene selection, add ultra-realistic VFX.
+
+Work Log:
+- audio.ts (rewritten): D Phrygian-dominant scale (dark exotic oriental), layered drone (D2+A2+Eb3 sawtooth through lowpass + tremolo LFO), heavy dhol/taiko kick (pitch-drop sine + click transient), snare (noise + tone), galloping 16th hi-hats, brass stabs (detuned saws), haunting duduk lead (sawtooth + bandpass + vibrato), sub-bass pulse, noise riser before drops. 104 BPM, 4-bar cycling motifs. Added setIntensity(0..1) that adds galloping kicks + denser hats at high intensity, and hit(kind) impact stingers (impactBoom + metallicClang inharmonic partials + whoosh) for punch/kick/roundhouse/block/ko. KO stinger = whoosh + double boom + clang.
+- engine.ts: added sceneOverride + scene getter; startMatchWith(index, bg?) for free select; toMenu() to abandon. Fixed input field to include roundhouse. Added VFX state: slowmo, zoom (punch-zoom), chromAb, flashColor, shockwaves[], events[] (VFXEvent queue). resolveAttack now classifies heavy hits (kick/roundhouse/dmg>=16) and triggers: longer hitstop, bigger shake, colored flash (attacker rim), zoom, chromAb, slowmo, shockwave + streak burst; pushes VFXEvent. endRoundByKO does dramatic VFX (hitstop 0.28, shake 34, flash 0.5, zoom 0.9, slowmo 1.0, big shockwave + 40-streak burst, ko event). slowmo scales fighter sim dt only (VFX keep real time). Added spawnStreakBurst, spawnShockwave, updateShockwaves; enriched spawnSpark (more/bigger sparks, heavy colors).
+- render.ts: render() now draws energy auras behind fighters (additive radial glow: strong when attacking, pulsing red when low HP), shockwaves (additive glowing expanding rings with bright inner ring), and streak particles (additive elongated energy lines along velocity). drawParticles split into additive pass (sparks/streaks/rings with shadowBlur glow) + normal dust pass. Uses eng.scene getter.
+- ShadowFight.tsx: added view/selOpp/selScene state + intensityRef. Render loop applies punch-zoom (center-scaled), colored impact flash, drains eng.events each frame -> audio.hit() stingers + combat intensity (bumps on hits, decays). MenuPanel now has "Choose Opponent & Arena" button -> SelectPanel. SelectPanel: opponent grid (8 cards, selectable, glowing when active) + arena chips (Auto + 7 scenes) + FIGHT button. End panels got "Main Menu" secondary buttons via backToMenu. startSelect starts chosen opponent/scene.
+- Verified via Agent Browser + VLM: menu shows both buttons; select screen lists 8 opponents + 7 arenas + FIGHT; selected Shogun in Volcano arena renders correctly; audio plays on fight start; heavy roundhouse hit triggers shake=24, flash, zoom=0.6, slowmo=0.83, 2 shockwaves, 57 particles, intensity 0.41 (VLM confirms glowing shockwave + energy sparks + red flash + zoom); KO triggers shake=28, flash=0.28, zoom=0.72, slowmo=0.9, 89 particles (VLM confirms K.O. text + dramatic shockwaves + yellow flash + cinematic finisher feel). No runtime errors.
+
+Stage Summary:
+- Music: SF2-inspired fighting theme (Phrygian dominant, duduk lead, heavy taiko, brass stabs, risers) with combat-intensity layering + per-hit impact stingers.
+- Selection: full opponent (8) + arena (7 + auto) select screen reachable from the menu; tournament mode still via ENTER THE ARENA.
+- VFX: ultra-realistic — additive glowing shockwaves, energy streak bursts, colored impact flash, punch-zoom, slow-motion, hitstop, energy auras, enriched sparks; dramatic KO finisher.
+- Lint clean, dev server healthy, browser-verified.

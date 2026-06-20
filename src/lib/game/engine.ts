@@ -3,6 +3,7 @@
 import { Fighter, GROUND_Y } from "./fighter";
 import { EnemyAI } from "./ai";
 import type {
+  BackgroundId,
   FloatingText,
   InputState,
   OpponentDef,
@@ -130,12 +131,32 @@ export interface Announcement {
   big?: boolean;
 }
 
+export interface Shockwave {
+  x: number;
+  y: number;
+  r: number;
+  maxR: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  width: number;
+}
+
+export type VFXEventKind = "hit" | "heavy" | "block" | "ko";
+export interface VFXEvent {
+  kind: VFXEventKind;
+  x: number;
+  y: number;
+  hitType: "punch" | "kick" | "roundhouse" | null;
+}
+
 export class GameEngine {
   player: Fighter;
   enemy: Fighter;
   ai: EnemyAI;
 
   opponentIndex = 0;
+  sceneOverride: BackgroundId | null = null;
   phase: Phase = "menu";
   roundNo = 1;
   playerWins = 0;
@@ -144,10 +165,15 @@ export class GameEngine {
 
   particles: Particle[] = [];
   texts: FloatingText[] = [];
+  shockwaves: Shockwave[] = [];
   shake = 0;
   hitstop = 0;
   time = 0; // global elapsed (for bg effects)
   flash = 0;
+  flashColor = "#ffffff";
+  slowmo = 0;
+  zoom = 0; // punch-zoom impulse (0..1)
+  chromAb = 0;
 
   playerCombo = 0;
   playerComboTimer = 0;
@@ -156,6 +182,9 @@ export class GameEngine {
   announce: Announcement | null = null;
   phaseTimer = 0;
 
+  // VFX/audio events drained by the component each frame
+  events: VFXEvent[] = [];
+
   input: InputState = {
     left: false,
     right: false,
@@ -163,6 +192,7 @@ export class GameEngine {
     down: false,
     punch: false,
     kick: false,
+    roundhouse: false,
     block: false,
   };
 
@@ -201,15 +231,39 @@ export class GameEngine {
     return OPPONENTS[this.opponentIndex];
   }
 
+  get scene(): BackgroundId {
+    return this.sceneOverride ?? this.opponent.bg;
+  }
+
   // ---- Flow control ----
+  // Tournament: start from the first opponent and progress through all eight.
   startMatch() {
-    this.opponentIndex = 0;
-    this.ai = new EnemyAI(OPPONENTS[0]);
-    this.enemy = this.makeEnemy(0);
+    this.startMatchWith(0);
+  }
+
+  // Free select: jump straight to a chosen opponent (and optional scene).
+  startMatchWith(index: number, bg?: BackgroundId | null) {
+    this.opponentIndex = Math.max(0, Math.min(OPPONENTS.length - 1, index));
+    this.sceneOverride = bg ?? null;
+    this.ai = new EnemyAI(OPPONENTS[this.opponentIndex]);
+    this.enemy = this.makeEnemy(this.opponentIndex);
     this.playerWins = 0;
     this.enemyWins = 0;
     this.roundNo = 1;
+    this.maxCombo = 0;
     this.startRound();
+  }
+
+  // Return to the menu (abandon current match).
+  toMenu() {
+    this.phase = "menu";
+    this.announce = null;
+    this.player.reset(360, 1);
+    this.enemy.reset(600, -1);
+    this.particles = [];
+    this.texts = [];
+    this.shockwaves = [];
+    this.events = [];
   }
 
   nextOpponent() {
@@ -247,8 +301,13 @@ export class GameEngine {
     this.roundTimer = ROUND_TIME;
     this.particles = [];
     this.texts = [];
+    this.shockwaves = [];
     this.shake = 0;
     this.hitstop = 0;
+    this.slowmo = 0;
+    this.zoom = 0;
+    this.chromAb = 0;
+    this.flash = 0;
     this.phase = "intro";
     this.phaseTimer = 2.2;
     this.setAnnounce(`ROUND ${this.roundNo}`, this.vsText(), 2.2, true);
@@ -271,8 +330,11 @@ export class GameEngine {
   update(dtRaw: number) {
     const dt = Math.min(dtRaw, 1 / 30); // clamp big steps
     this.time += dt;
-    if (this.flash > 0) this.flash -= dt;
+    if (this.flash > 0) this.flash -= dt * 2.2;
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 60);
+    if (this.zoom > 0) this.zoom = Math.max(0, this.zoom - dt * 1.8);
+    if (this.chromAb > 0) this.chromAb = Math.max(0, this.chromAb - dt * 2.5);
+    if (this.slowmo > 0) this.slowmo = Math.max(0, this.slowmo - dt);
     if (this.announce) {
       this.announce.timer -= dt;
       if (this.announce.timer <= 0) this.announce = null;
@@ -280,6 +342,7 @@ export class GameEngine {
 
     this.updateParticles(dt);
     this.updateTexts(dt);
+    this.updateShockwaves(dt);
 
     // combo decay
     if (this.playerComboTimer > 0) {
@@ -294,15 +357,18 @@ export class GameEngine {
       return; // freeze fighters during impact
     }
 
+    // slow-motion scales fighter simulation only (VFX keep real time)
+    const simDt = this.slowmo > 0 ? dt * 0.3 : dt;
+
     switch (this.phase) {
       case "menu":
         // idle pose on menu
-        this.player.update(dt, null, this.enemy);
-        this.enemy.update(dt, null, this.player);
+        this.player.update(simDt, null, this.enemy);
+        this.enemy.update(simDt, null, this.player);
         break;
       case "intro":
-        this.player.update(dt, null, this.enemy);
-        this.enemy.update(dt, null, this.player);
+        this.player.update(simDt, null, this.enemy);
+        this.enemy.update(simDt, null, this.player);
         this.phaseTimer -= dt;
         if (this.phaseTimer <= 0) {
           this.phase = "fight";
@@ -310,37 +376,37 @@ export class GameEngine {
         }
         break;
       case "fight":
-        this.updateFight(dt);
+        this.updateFight(dt, simDt);
         break;
       case "round_end":
-        this.player.update(dt, null, this.enemy);
-        this.enemy.update(dt, null, this.player);
+        this.player.update(simDt, null, this.enemy);
+        this.enemy.update(simDt, null, this.player);
         this.phaseTimer -= dt;
         if (this.phaseTimer <= 0) this.afterRoundEnd();
         break;
       case "match_end":
-        this.player.update(dt, null, this.enemy);
-        this.enemy.update(dt, null, this.player);
+        this.player.update(simDt, null, this.enemy);
+        this.enemy.update(simDt, null, this.player);
         break;
       case "game_over":
       case "champion":
-        this.player.update(dt, null, this.enemy);
-        this.enemy.update(dt, null, this.player);
+        this.player.update(simDt, null, this.enemy);
+        this.enemy.update(simDt, null, this.player);
         break;
     }
   }
 
-  private updateFight(dt: number) {
-    const enemyInput = this.ai.update(dt, this.enemy, this.player);
-    this.player.update(dt, this.input, this.enemy);
-    this.enemy.update(dt, enemyInput, this.player);
+  private updateFight(dt: number, simDt: number) {
+    const enemyInput = this.ai.update(simDt, this.enemy, this.player);
+    this.player.update(simDt, this.input, this.enemy);
+    this.enemy.update(simDt, enemyInput, this.player);
 
     this.player.separateFrom(this.enemy);
 
     this.resolveAttack(this.player, this.enemy);
     this.resolveAttack(this.enemy, this.player);
 
-    // round timer
+    // round timer (real time)
     this.roundTimer -= dt;
     if (this.roundTimer <= 0) {
       this.roundTimer = 0;
@@ -358,21 +424,50 @@ export class GameEngine {
     if (!ab) return;
     const bb = defender.bodyBox();
     if (!rectsOverlap(ab.rect, bb)) return;
+    const hitX = defender.x - attacker.facing * 8;
+    const hitY = GROUND_Y + ab.spec.height;
     const result = defender.takeHit(ab.spec, attacker.facing, attacker, (x, y, blocked) =>
       this.spawnSpark(x, y, blocked, ab.spec.type),
     );
     if (result.hit) {
       attacker.attackHasHit = true;
-      this.hitstop = result.blocked ? 0.05 : 0.09;
-      this.shake = Math.max(this.shake, result.blocked ? 5 : 11);
-      this.flash = result.blocked ? 0.04 : 0.08;
+      const heavy =
+        !result.blocked &&
+        (ab.spec.type === "kick" || ab.spec.type === "roundhouse" || result.dmg >= 16);
+      // VFX
+      this.hitstop = result.blocked ? 0.05 : heavy ? 0.16 : 0.09;
+      this.shake = Math.max(
+        this.shake,
+        result.blocked ? 5 : heavy ? 20 : 12,
+      );
+      this.flash = result.blocked ? 0.05 : heavy ? 0.22 : 0.1;
+      this.flashColor = result.blocked
+        ? "#93c5fd"
+        : attacker.rim;
+      if (heavy) {
+        this.zoom = 0.5;
+        this.chromAb = 0.8;
+        this.slowmo = 0.5;
+      }
       this.spawnDamageText(
         defender.x,
         bb.y - 10,
         result.blocked ? "BLOCK" : `-${result.dmg}`,
-        result.blocked ? "#93c5fd" : "#fca5a5",
+        result.blocked ? "#93c5fd" : heavy ? "#fde047" : "#fca5a5",
+        heavy,
       );
-      if (!result.blocked) this.spawnRing(defender.x - attacker.facing * 6, GROUND_Y + ab.spec.height);
+      if (!result.blocked) {
+        this.spawnRing(hitX, hitY);
+        this.spawnShockwave(hitX, hitY, heavy ? 120 : 70, attacker.rim, heavy ? 5 : 3);
+        if (heavy) this.spawnStreakBurst(hitX, hitY, 22, attacker.rim);
+      }
+      // audio/VFX event
+      this.events.push({
+        kind: result.blocked ? "block" : heavy ? "heavy" : "hit",
+        x: hitX,
+        y: hitY,
+        hitType: ab.spec.type,
+      });
       // combo tracking
       if (!result.blocked) {
         if (attacker === this.player) {
@@ -393,6 +488,18 @@ export class GameEngine {
     else this.enemyWins += 1;
     this.phase = "round_end";
     this.phaseTimer = 2.6;
+    // dramatic KO VFX
+    this.hitstop = 0.28;
+    this.shake = 34;
+    this.flash = 0.5;
+    this.flashColor = playerWon ? "#fde047" : "#f87171";
+    this.zoom = 0.9;
+    this.slowmo = 1.0;
+    this.chromAb = 1.0;
+    const koX = (this.player.x + this.enemy.x) / 2;
+    this.spawnShockwave(koX, GROUND_Y - 90, 220, playerWon ? "#fde047" : "#f87171", 8);
+    this.spawnStreakBurst(koX, GROUND_Y - 90, 40, playerWon ? "#fde047" : "#f87171");
+    this.events.push({ kind: "ko", x: koX, y: GROUND_Y - 90, hitType: null });
     this.setAnnounce("K.O.", playerWon ? "You won the round" : "You lost the round", 2.6, true);
     if (playerWon) this.player.setState("victory");
     else this.enemy.setState("victory");
@@ -434,26 +541,66 @@ export class GameEngine {
     }
   }
 
-  // ---- Particles ----
+  // ---- Particles & VFX ----
   private spawnSpark(x: number, y: number, blocked: boolean, type: string) {
-    const n = blocked ? 8 : type === "kick" ? 18 : 12;
-    const color = blocked ? "#93c5fd" : "#fef08a";
+    const heavy = type === "kick" || type === "roundhouse";
+    const n = blocked ? 10 : heavy ? 26 : 16;
+    const color = blocked ? "#93c5fd" : heavy ? "#fde047" : "#fef08a";
     for (let i = 0; i < n; i++) {
       const ang = Math.random() * Math.PI * 2;
-      const sp = 60 + Math.random() * (blocked ? 120 : 260);
+      const sp = 60 + Math.random() * (blocked ? 130 : heavy ? 360 : 280);
       this.particles.push({
         x,
         y,
         vx: Math.cos(ang) * sp,
         vy: Math.sin(ang) * sp - 40,
-        life: 0.3 + Math.random() * 0.3,
-        maxLife: 0.6,
-        size: 2 + Math.random() * 3,
+        life: 0.3 + Math.random() * (heavy ? 0.4 : 0.3),
+        maxLife: 0.7,
+        size: 1.5 + Math.random() * (heavy ? 4 : 3),
         color,
         kind: "spark",
-        grav: 600,
+        grav: 560,
       });
     }
+  }
+
+  // big radial burst of elongated energy streaks (heavy hits / KO)
+  private spawnStreakBurst(x: number, y: number, n: number, color: string) {
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2 + Math.random() * 0.3;
+      const sp = 220 + Math.random() * 320;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp,
+        life: 0.28 + Math.random() * 0.22,
+        maxLife: 0.5,
+        size: 10 + Math.random() * 14,
+        color,
+        kind: "streak",
+        grav: 0,
+      });
+    }
+  }
+
+  private spawnShockwave(
+    x: number,
+    y: number,
+    maxR: number,
+    color: string,
+    width: number,
+  ) {
+    this.shockwaves.push({
+      x,
+      y,
+      r: 6,
+      maxR,
+      life: 0.45,
+      maxLife: 0.45,
+      color,
+      width,
+    });
   }
 
   private spawnRing(x: number, y: number) {
@@ -487,16 +634,22 @@ export class GameEngine {
     }
   }
 
-  private spawnDamageText(x: number, y: number, text: string, color: string) {
+  private spawnDamageText(
+    x: number,
+    y: number,
+    text: string,
+    color: string,
+    big = false,
+  ) {
     this.texts.push({
       x,
       y,
       vy: -70,
-      life: 0.9,
-      maxLife: 0.9,
+      life: big ? 1.2 : 0.9,
+      maxLife: big ? 1.2 : 0.9,
       text,
       color,
-      size: text.startsWith("-") ? 22 : 16,
+      size: text.startsWith("-") ? (big ? 30 : 22) : 16,
     });
   }
 
@@ -512,7 +665,25 @@ export class GameEngine {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         if (p.grav) p.vy += p.grav * dt;
+        // streaks fade velocity (drag) for a snap feel
+        if (p.kind === "streak") {
+          p.vx *= 0.9;
+          p.vy *= 0.9;
+        }
       }
+    }
+  }
+
+  private updateShockwaves(dt: number) {
+    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+      const s = this.shockwaves[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        this.shockwaves.splice(i, 1);
+        continue;
+      }
+      const t = 1 - s.life / s.maxLife;
+      s.r = 6 + (s.maxR - 6) * (1 - Math.pow(1 - t, 3));
     }
   }
 
