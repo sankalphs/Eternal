@@ -52,7 +52,11 @@ export default function Home() {
           <span>
             Shadow Fight clone — a canvas fighting game built with Next.js.
           </span>
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-3 flex-wrap justify-center">
+            <span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 font-mono text-[10px] text-zinc-300">WASD</kbd>
+              <span className="ml-1">Move</span>
+            </span>
             <span>
               <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 font-mono text-[10px] text-zinc-300">J</kbd>
               <span className="ml-1">Punch</span>
@@ -60,6 +64,10 @@ export default function Home() {
             <span>
               <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 font-mono text-[10px] text-zinc-300">K</kbd>
               <span className="ml-1">Kick</span>
+            </span>
+            <span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 font-mono text-[10px] text-zinc-300">I</kbd>
+              <span className="ml-1">Roundhouse</span>
             </span>
             <span>
               <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 font-mono text-[10px] text-zinc-300">L</kbd>

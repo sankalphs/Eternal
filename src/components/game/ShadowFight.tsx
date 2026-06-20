@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GameEngine, OPPONENTS, ROUNDS_TO_WIN } from "@/lib/game/engine";
 import { render, VIRTUAL_H, VIRTUAL_W } from "@/lib/game/render";
+import { GameAudio } from "@/lib/game/audio";
 import type { InputState, Phase } from "@/lib/game/types";
 
 interface Snapshot {
@@ -55,6 +56,8 @@ const KEY_MAP: Record<string, keyof InputState> = {
   KeyZ: "punch",
   KeyK: "kick",
   KeyX: "kick",
+  KeyI: "roundhouse",
+  KeyU: "roundhouse",
   KeyL: "block",
   KeyC: "block",
   ShiftLeft: "block",
@@ -65,6 +68,8 @@ export default function ShadowFight() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [eng] = useState(() => new GameEngine());
+  const [audio] = useState(() => new GameAudio());
+  const [muted, setMuted] = useState(false);
 
   const keysRef = useRef<InputState>({
     left: false,
@@ -73,6 +78,7 @@ export default function ShadowFight() {
     down: false,
     punch: false,
     kick: false,
+    roundhouse: false,
     block: false,
   });
 
@@ -175,6 +181,7 @@ export default function ShadowFight() {
         down: false,
         punch: false,
         kick: false,
+        roundhouse: false,
         block: false,
       };
     };
@@ -195,19 +202,37 @@ export default function ShadowFight() {
     eng.startMatch();
     setStarted(true);
     setSnap(snapFrom(eng));
-  }, [eng]);
+    if (!muted) void audio.start();
+  }, [eng, audio, muted]);
   const nextOpp = useCallback(() => {
     eng.nextOpponent();
     setSnap(snapFrom(eng));
-  }, [eng]);
+    if (!muted) void audio.start();
+  }, [eng, audio, muted]);
   const retry = useCallback(() => {
     eng.retryMatch();
     setSnap(snapFrom(eng));
-  }, [eng]);
+    if (!muted) void audio.start();
+  }, [eng, audio, muted]);
   const restart = useCallback(() => {
     eng.startMatch();
     setSnap(snapFrom(eng));
-  }, [eng]);
+    if (!muted) void audio.start();
+  }, [eng, audio, muted]);
+
+  const toggleMute = useCallback(() => {
+    setMuted((m) => {
+      const nm = !m;
+      if (nm) audio.stop();
+      else if (started) void audio.start();
+      return nm;
+    });
+  }, [audio, started]);
+
+  // stop audio when the component unmounts
+  useEffect(() => {
+    return () => audio.dispose();
+  }, [audio]);
 
   const opp = OPPONENTS[snap.oppIndex];
   const phpPct = Math.max(0, (snap.php / snap.pmax) * 100);
@@ -220,6 +245,16 @@ export default function ShadowFight() {
   return (
     <div className="w-full max-w-5xl mx-auto px-2 sm:px-4">
       <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/60 bg-black">
+        {/* mute toggle */}
+        <button
+          type="button"
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute music" : "Mute music"}
+          className="absolute top-2 right-2 sm:top-3 sm:right-3 z-30 w-9 h-9 rounded-full border border-white/20 bg-black/50 backdrop-blur text-white/80 hover:bg-white/15 active:scale-95 transition flex items-center justify-center"
+        >
+          {muted ? <MuteIcon /> : <SoundIcon />}
+        </button>
+
         {/* HUD top bar */}
         <div className="absolute top-0 left-0 right-0 z-20 p-2 sm:p-3 pointer-events-none">
           <div className="flex items-start gap-2 sm:gap-4">
@@ -308,9 +343,9 @@ export default function ShadowFight() {
 
         {/* Desktop controls hint */}
         {started && snap.phase === "fight" && (
-          <div className="hidden md:flex absolute bottom-2 left-1/2 -translate-x-1/2 z-20 gap-2 text-[10px] text-white/40 pointer-events-none">
-            <Key>←→</Key> Move <Key>↑/Space</Key> Jump <Key>↓</Key> Crouch
-            <Key>J</Key> Punch <Key>K</Key> Kick <Key>L</Key> Block
+          <div className="hidden md:flex absolute bottom-2 left-1/2 -translate-x-1/2 z-20 gap-2 text-[10px] text-white/40 pointer-events-none flex-wrap justify-center px-2">
+            <Key>WASD</Key>/<Key>←→</Key> Move <Key>W/Space</Key> Jump <Key>S/↓</Key> Crouch
+            <Key>J</Key> Punch <Key>K</Key> Kick <Key>I</Key> Roundhouse <Key>L</Key> Block
           </div>
         )}
       </div>
@@ -393,6 +428,26 @@ function Pips({ n, color }: { n: number; color: string }) {
   );
 }
 
+function SoundIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 5 6 9H2v6h4l5 4z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+    </svg>
+  );
+}
+
+function MuteIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 5 6 9H2v6h4l5 4z" />
+      <line x1="22" y1="9" x2="16" y2="15" />
+      <line x1="16" y1="9" x2="22" y2="15" />
+    </svg>
+  );
+}
+
 function Key({ children }: { children: React.ReactNode }) {
   return (
     <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/70 font-mono">
@@ -438,10 +493,11 @@ function TouchControls({
         {mk("down", "↓", "h-9")}
         {mk("right", "→", "h-9")}
       </div>
-      <div className="grid grid-cols-2 gap-1.5 w-28">
-        {mk("punch", "P", "h-12 bg-amber-500/20 border-amber-400/40")}
-        {mk("kick", "K", "h-12 bg-fuchsia-500/20 border-fuchsia-400/40")}
-        <div className="col-span-2">{mk("block", "BLOCK", "h-9 bg-sky-500/20 border-sky-400/40 text-xs")}</div>
+      <div className="grid grid-cols-3 gap-1.5 w-36">
+        {mk("punch", "P", "h-12 bg-amber-500/20 border-amber-400/40 text-xs")}
+        {mk("kick", "K", "h-12 bg-fuchsia-500/20 border-fuchsia-400/40 text-xs")}
+        {mk("roundhouse", "RH", "h-12 bg-rose-500/20 border-rose-400/40 text-[10px]")}
+        <div className="col-span-3">{mk("block", "BLOCK", "h-9 bg-sky-500/20 border-sky-400/40 text-xs")}</div>
       </div>
     </div>
   );
@@ -462,27 +518,40 @@ function MenuPanel({ onStart }: { onStart: () => void }) {
         </p>
       </div>
       <p className="text-center text-zinc-400 text-sm max-w-xl mx-auto mb-6">
-        Master the shadow arts. Punch, kick, block, and outwit four deadly
-        opponents in best-of-three duels. Only the greatest warrior earns the
-        title of Shadow Lord.
+        Master the shadow arts. Punch, kick, roundhouse, and block your way past
+        eight deadly opponents across eight arenas. Only the greatest warrior
+        earns the title of Shadow Lord.
       </p>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 max-w-2xl mx-auto mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 max-w-3xl mx-auto mb-6">
         {OPPONENTS.map((o, i) => (
           <div
             key={o.name}
             className="rounded-xl border border-white/10 bg-black/40 p-3 text-center"
             style={{ boxShadow: `inset 0 0 20px ${o.rim}22` }}
           >
-            <div
-              className="w-8 h-8 mx-auto mb-2 rounded-full"
-              style={{
-                background: o.rim,
-                boxShadow: `0 0 16px ${o.rim}`,
-              }}
-            />
+            <div className="flex items-center justify-center gap-1.5 mb-1.5">
+              <span className="text-[10px] font-mono text-zinc-600">
+                {i + 1}
+              </span>
+              <div
+                className="w-7 h-7 rounded-full"
+                style={{
+                  background: o.rim,
+                  boxShadow: `0 0 14px ${o.rim}`,
+                }}
+              />
+              {o.blade && (
+                <span className="text-[9px] text-zinc-500" title="armed">
+                  ⚔
+                </span>
+              )}
+            </div>
             <div className="text-xs font-bold text-white">{o.name}</div>
             <div className="text-[10px] text-zinc-500">{o.title}</div>
+            <div className="text-[9px] text-zinc-600 mt-0.5 capitalize">
+              {o.bg} arena
+            </div>
           </div>
         ))}
       </div>
@@ -496,15 +565,15 @@ function MenuPanel({ onStart }: { onStart: () => void }) {
         </button>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-400 max-w-2xl mx-auto">
-        <Control keys="← → / A D" label="Move" />
-        <Control keys="↑ / W / Space" label="Jump" />
-        <Control keys="↓ / S" label="Crouch (duck)" />
+      <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-400 max-w-3xl mx-auto">
+        <Control keys="WASD / ←→" label="Move" />
+        <Control keys="W / ↑ / Space" label="Jump" />
+        <Control keys="S / ↓" label="Crouch (duck)" />
         <Control keys="J / Z" label="Punch" />
         <Control keys="K / X" label="Kick" />
+        <Control keys="I / U" label="Roundhouse" />
         <Control keys="L / C / Shift" label="Block" />
-        <Control keys="Crouch" label="Dodge punch" />
-        <Control keys="Jump" label="Dodge kick" />
+        <Control keys="Crouch/Jump" label="Dodge hits" />
       </div>
     </div>
   );

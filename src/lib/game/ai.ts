@@ -12,7 +12,7 @@ export class EnemyAI {
   retreatTimer = 0;
   blockTimer = 0;
   comboLeft = 0;
-  nextAttack: "punch" | "kick" | null = null;
+  nextAttack: "punch" | "kick" | "roundhouse" | null = null;
   recoverTimer = 0;
 
   oppWasAttacking = false;
@@ -44,6 +44,7 @@ export class EnemyAI {
       down: false,
       punch: false,
       kick: false,
+      roundhouse: false,
       block: false,
     };
 
@@ -94,10 +95,12 @@ export class EnemyAI {
     // ---- Continue an in-progress combo (spaced by attack duration via canAct).
     const inPunch = adist < 64;
     const inKick = adist < 98;
+    const inRound = adist < 104;
     if (this.comboLeft > 0 && (inPunch || inKick)) {
       const choice = this.nextAttack ?? (inPunch ? "punch" : "kick");
       if (choice === "punch") input.punch = true;
-      else input.kick = true;
+      else if (choice === "kick") input.kick = true;
+      else input.roundhouse = true;
       this.comboLeft -= 1;
       this.nextAttack = null;
       // long recovery pause after a combo so the player has openings to punish
@@ -118,8 +121,14 @@ export class EnemyAI {
         const r = Math.random();
         if (r < this.def.aggression) {
           this.comboLeft = 1 + Math.floor(Math.random() * this.def.combo);
-          // prefer punches (shorter, less knockdown) so the player can out-range
-          this.nextAttack = inPunch && Math.random() < 0.7 ? "punch" : "kick";
+          // Strong opponents sometimes throw a roundhouse (big, slow, punishable).
+          const canRh =
+            inRound &&
+            this.def.aggression > 0.58 &&
+            Math.random() < 0.16;
+          if (canRh) this.nextAttack = "roundhouse";
+          else if (inPunch && Math.random() < 0.7) this.nextAttack = "punch";
+          else this.nextAttack = "kick";
           return input;
         } else if (r < this.def.aggression + 0.16) {
           // short back-step

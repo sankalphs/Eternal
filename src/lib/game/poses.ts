@@ -250,6 +250,79 @@ export function poseFor(c: PoseCtx): Pose {
         c.p,
       );
     }
+    case "roundhouse": {
+      // Spinning heel kick: chamber high, then sweep the lead leg out
+      // horizontally at torso/head height with full body rotation.
+      return kf(
+        [
+          [
+            0,
+            {
+              torsoLean: -0.1,
+              headTilt: -0.12,
+              fThigh: 1.6,
+              fShin: 2.45,
+              bThigh: -0.42,
+              bShin: -0.1,
+              hipDrop: 6,
+              fArm: 0.35,
+              fFore: 1.5,
+              bArm: -1.0,
+              bFore: 1.2,
+            },
+          ],
+          [
+            0.42,
+            {
+              torsoLean: 0.3,
+              headTilt: 0.18,
+              fThigh: 1.5,
+              fShin: 1.5,
+              bThigh: -0.5,
+              bShin: -0.05,
+              hipDrop: 0,
+              fArm: 1.25,
+              fFore: 1.1,
+              bArm: -1.45,
+              bFore: 0.9,
+            },
+          ],
+          [
+            0.62,
+            {
+              torsoLean: 0.3,
+              headTilt: 0.18,
+              fThigh: 1.5,
+              fShin: 1.5,
+              bThigh: -0.5,
+              bShin: -0.05,
+              hipDrop: 0,
+              fArm: 1.25,
+              fFore: 1.1,
+              bArm: -1.45,
+              bFore: 0.9,
+            },
+          ],
+          [
+            1,
+            {
+              torsoLean: BASE.torsoLean,
+              headTilt: BASE.headTilt,
+              fThigh: BASE.fThigh,
+              fShin: BASE.fShin,
+              bThigh: BASE.bThigh,
+              bShin: BASE.bShin,
+              hipDrop: 0,
+              fArm: BASE.fArm,
+              fFore: BASE.fFore,
+              bArm: BASE.bArm,
+              bFore: BASE.bFore,
+            },
+          ],
+        ],
+        c.p,
+      );
+    }
     case "block": {
       // Both forearms up in front, slight crouch.
       return {
@@ -401,15 +474,17 @@ export function poseFor(c: PoseCtx): Pose {
 export const STATE_DUR: Record<string, number> = {
   punch: 0.34,
   kick: 0.56,
+  roundhouse: 0.82,
   hit: 0.26,
   knockdown: 0.65,
   getup: 0.5,
 };
 
 // Attack active-frame windows (progress within the attack state).
-export const ACTIVE_WINDOW: Record<"punch" | "kick", [number, number]> = {
+export const ACTIVE_WINDOW: Record<"punch" | "kick" | "roundhouse", [number, number]> = {
   punch: [0.15, 0.45],
   kick: [0.32, 0.6],
+  roundhouse: [0.42, 0.62],
 };
 
 export const ATTACK_SPECS = {
@@ -437,6 +512,19 @@ export const ATTACK_SPECS = {
     hitH: 42,
     knockback: 310,
     hitstun: 0.44,
+    launch: 0,
+  },
+  roundhouse: {
+    type: "roundhouse" as const,
+    startup: 0.82 * 0.42,
+    active: 0.82 * 0.2,
+    recovery: 0.82 * 0.38,
+    damage: 16,
+    range: 90,
+    height: -104,
+    hitH: 46,
+    knockback: 370,
+    hitstun: 0.5,
     launch: 0,
   },
 };

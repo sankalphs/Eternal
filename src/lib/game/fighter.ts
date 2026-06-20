@@ -26,6 +26,7 @@ export interface FighterOpts {
   name: string;
   damageMul?: number;
   speedMul?: number;
+  blade?: boolean;
 }
 
 export class Fighter {
@@ -49,14 +50,16 @@ export class Fighter {
   onGround = true;
 
   attackHasHit = false;
-  currentAttack: "punch" | "kick" | null = null;
+  currentAttack: import("./types").AttackType | null = null;
   hitstun = 0;
   blockHeld = false;
   invuln = 0;
+  blade: boolean;
 
   // buffered input edge
   private prevPunch = false;
   private prevKick = false;
+  private prevRoundhouse = false;
 
   // knockdown get-up
   downTimer = 0;
@@ -71,6 +74,7 @@ export class Fighter {
     this.name = o.name;
     this.damageMul = o.damageMul ?? 1;
     this.speedMul = o.speedMul ?? 1;
+    this.blade = o.blade ?? false;
   }
 
   reset(x: number, facing: Facing) {
@@ -105,6 +109,8 @@ export class Fighter {
     if (!this.onGround) return false;
     if (this.state === "hit" || this.state === "knockdown") return false;
     if (this.state === "getup") return false;
+    if (this.state === "punch" || this.state === "kick" || this.state === "roundhouse")
+      return false;
     if (this.state === "victory" || this.state === "defeated") return false;
     return true;
   }
@@ -115,7 +121,11 @@ export class Fighter {
   }
 
   isAttacking(): boolean {
-    return this.state === "punch" || this.state === "kick";
+    return (
+      this.state === "punch" ||
+      this.state === "kick" ||
+      this.state === "roundhouse"
+    );
   }
 
   isBlocking(): boolean {
@@ -126,7 +136,7 @@ export class Fighter {
     if (this.state !== s) {
       this.state = s;
       this.stateTime = 0;
-      if (s === "punch" || s === "kick") {
+      if (s === "punch" || s === "kick" || s === "roundhouse") {
         this.attackHasHit = false;
         this.currentAttack = s;
       } else if (s !== "hit") {
@@ -135,7 +145,7 @@ export class Fighter {
     }
   }
 
-  startAttack(type: "punch" | "kick") {
+  startAttack(type: import("./types").AttackType) {
     if (!this.canAct()) return;
     if (this.crouchAmt > 0.5) return; // can't attack while crouching low
     this.setState(type);
@@ -204,7 +214,8 @@ export class Fighter {
     const heavy =
       lethal ||
       (spec.type === "kick" && Math.random() < 0.22) ||
-      dmg >= 20;
+      (spec.type === "roundhouse" && Math.random() < 0.5) ||
+      dmg >= 22;
     if (heavy) {
       this.vx = -fromFacing * spec.knockback;
       this.setState("knockdown");
@@ -277,6 +288,7 @@ export class Fighter {
       this.onGround &&
       this.state !== "punch" &&
       this.state !== "kick" &&
+      this.state !== "roundhouse" &&
       this.state !== "hit" &&
       this.state !== "knockdown" &&
       this.state !== "getup" &&
@@ -355,8 +367,10 @@ export class Fighter {
     // Attacks (edge-triggered).
     const punchEdge = input.punch && !this.prevPunch;
     const kickEdge = input.kick && !this.prevKick;
+    const rhEdge = input.roundhouse && !this.prevRoundhouse;
     this.prevPunch = input.punch;
     this.prevKick = input.kick;
+    this.prevRoundhouse = input.roundhouse;
 
     if (punchEdge) {
       this.startAttack("punch");
@@ -364,6 +378,10 @@ export class Fighter {
     }
     if (kickEdge) {
       this.startAttack("kick");
+      return;
+    }
+    if (rhEdge) {
+      this.startAttack("roundhouse");
       return;
     }
 

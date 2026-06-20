@@ -2,6 +2,15 @@
 
 export type Facing = 1 | -1;
 
+export type BackgroundId =
+  | "sunset"
+  | "desert"
+  | "temple"
+  | "bamboo"
+  | "moon"
+  | "volcano"
+  | "snow";
+
 // A pose describes all joint angles (radians) for an articulated silhouette.
 // Convention: angle measured from "straight down", positive rotates toward
 // the fighter's front (+x in local space). Local space always faces right;
@@ -28,6 +37,7 @@ export type FighterState =
   | "crouch"
   | "punch"
   | "kick"
+  | "roundhouse"
   | "block"
   | "hit"
   | "knockdown"
@@ -35,8 +45,10 @@ export type FighterState =
   | "victory"
   | "defeated";
 
+export type AttackType = "punch" | "kick" | "roundhouse";
+
 export interface AttackSpec {
-  type: "punch" | "kick";
+  type: AttackType;
   startup: number;
   active: number;
   recovery: number;
@@ -93,6 +105,7 @@ export interface OpponentDef {
   reaction: number;
   combo: number;
   blade?: boolean;
+  bg: BackgroundId;
 }
 
 export type Phase =
@@ -111,5 +124,6 @@ export interface InputState {
   down: boolean;
   punch: boolean;
   kick: boolean;
+  roundhouse: boolean;
   block: boolean;
 }

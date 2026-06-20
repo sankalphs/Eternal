@@ -47,3 +47,27 @@ Stage Summary:
 - Fully playable Shadow Fight 2 clone at /. Lint clean, dev server healthy, browser-verified.
 - Features: 4 opponents with scaling difficulty (Lynx, Crane, Widow, Shogun), best-of-3 rounds, 60s timer, punch/kick/block/jump/crouch, knockdowns & getups, combos with counter, hit sparks, damage numbers, screen shake, hit flash, sunset arena with parallax silhouettes & embers, desktop keyboard + mobile touch controls, full menu/victory/defeat/champion screens.
 - Controls: ←→/AD move, ↑/W/Space jump, ↓/S crouch (ducks punches), J/Z punch, K/X kick, L/C/Shift block.
+
+---
+Task ID: 10
+Agent: main
+Task: Add WASD + roundhouse (I), more villains, themed backgrounds, realism, and procedural music.
+
+Work Log:
+- types.ts: added "roundhouse" FighterState, AttackType union, roundhouse input, BackgroundId type, bg field on OpponentDef, blade stays.
+- poses.ts: added roundhouse spinning-heel-kick keyframes, STATE_DUR/ACTIVE_WINDOW/ATTACK_SPECS for roundhouse (dmg 16, range 90, slow, 50% KD).
+- fighter.ts: currentAttack now AttackType; roundhouse in isAttacking/canAct/setState/auto-face; startAttack accepts roundhouse; takeHit heavy includes roundhouse (50% KD); handleInput edge-triggers roundhouse (prevRoundhouse); added blade flag.
+- ai.ts: roundhouse in InputState + nextAttack; strong opponents (aggression>0.58) throw roundhouse ~16%.
+- engine.ts: expanded OPPONENTS to 8 (Lynx, Bandit, Crane, Hermit, Widow, Butcher, Shogun, Titan) each with a themed bg and escalating stats; player + bladed opponents get blade flag.
+- render.ts (rewritten): 7 themed arenas (sunset, desert, temple, bamboo, moon, volcano, snow) each with sky gradient, atmospheric particles (embers/sand/fireflies/petals/snow), themed silhouettes (dunes/pagodas/bamboo/pines/peaks), and themed ground. Realism: ground contact shadows, joint caps, motion-blur fans on attacking limbs during active frames, blade glints on bladed fighters during strikes, two-tone rim light.
+- audio.ts (new): GameAudio — procedural Shadow-Fight-style soundtrack via Web Audio API. Layers: low A1+E2 drone with tremolo LFO, taiko kick/snare, koto pentatonic arpeggios, flute lead with vibrato, delay send for space. Lookahead scheduler at 92 BPM. start/stop/toggle/dispose + volume.
+- ShadowFight.tsx: KeyI/KeyU -> roundhouse; audio instance + mute toggle button (top-right) with Sound/Mute icons; audio starts on ENTER/next/retry/restart (user gesture), disposed on unmount; roundhouse touch button (RH); controls hints updated to show WASD + I; menu shows 8 opponents with arena type + blade icon.
+- page.tsx: footer hints now show WASD Move, J/K/I/L.
+- Verified via Agent Browser + VLM: 8-opponent menu correct, all 6 new backgrounds render atmospherically, roundhouse deals 18 dmg + knocks down (tested via direct call and I-key dispatch), audio plays with no errors, mute button present, no runtime errors.
+
+Stage Summary:
+- Roundhouse kick on I/U (player) + AI usage; WASD confirmed working (already mapped, now emphasized in hints).
+- 8 villains across 7 themed arenas (sunset/desert/temple/bamboo/moon/volcano/snow) with per-opponent difficulty.
+- Realism upgrades: ground shadows, motion blur, joint caps, blade glints, richer backgrounds.
+- Procedural oriental soundtrack (drone + taiko + koto + flute) with mute toggle, starts on first interaction.
+- Lint clean, dev server healthy, browser-verified.
