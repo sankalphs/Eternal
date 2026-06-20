@@ -116,6 +116,7 @@ export interface OpponentDef {
   adaptive?: number; // 0..1 how much the AI adapts to repeated player patterns
   rage?: number; // 0..1 how much aggression rises when low on HP
   perfection?: number; // 0..1 chance to frame-perfectly block an unreactable string
+  story?: string; // narrative beat shown when facing this opponent
 }
 
 export type Phase =

@@ -328,8 +328,8 @@ export default function ShadowFight() {
             {/* player */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] sm:text-xs font-bold tracking-widest text-slate-100 truncate">
-                  SHADOW
+                <span className="text-[10px] sm:text-xs font-bold tracking-widest text-rose-200/90 truncate">
+                  THE SHADOW
                 </span>
                 <Pips n={snap.pWins} color="#e2e8f0" />
               </div>
@@ -432,32 +432,32 @@ export default function ShadowFight() {
       )}
       {showMatchEnd && (
         <EndPanel
-          title="VICTORY"
-          subtitle={`${opp.name} has fallen`}
-          accent="#fbbf24"
+          title="THE SEALER FALLS"
+          subtitle={`${opp.name} is broken. Another seal is yours — the gate groans wider.`}
+          accent="#f59e0b"
           info={`Best combo: ${snap.maxCombo} hits`}
-          primary={{ label: "Next Opponent", onClick: nextOpp }}
-          secondary={{ label: "Main Menu", onClick: backToMenu }}
+          primary={{ label: "Hunt the Next Sealer", onClick: nextOpp }}
+          secondary={{ label: "The Riverbank", onClick: backToMenu }}
         />
       )}
       {showGameOver && (
         <EndPanel
-          title="DEFEATED"
-          subtitle={`${opp.name} proved too strong`}
+          title="DRIVEN BACK"
+          subtitle={`${opp.name}'s chains bite deep. You are caged once more... for now.`}
           accent="#f87171"
           info={`Best combo: ${snap.maxCombo} hits`}
-          primary={{ label: "Try Again", onClick: retry }}
-          secondary={{ label: "Main Menu", onClick: backToMenu }}
+          primary={{ label: "Break Free", onClick: retry }}
+          secondary={{ label: "The Riverbank", onClick: backToMenu }}
         />
       )}
       {showChampion && (
         <EndPanel
-          title="SHADOW LORD"
-          subtitle="You have conquered all challengers"
-          accent="#fbbf24"
+          title="THE GATEKEEPER"
+          subtitle="The last sealer falls. The gates swing wide. The shadow stands where the oath was sworn — and the river runs red."
+          accent="#a78bfa"
           info={`Largest combo: ${snap.maxCombo} hits`}
-          primary={{ label: "Play Again", onClick: restart }}
-          secondary={{ label: "Main Menu", onClick: backToMenu }}
+          primary={{ label: "Begin Anew", onClick: restart }}
+          secondary={{ label: "The Riverbank", onClick: backToMenu }}
         />
       )}
 
@@ -592,40 +592,44 @@ function MenuPanel({
   onSelect: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-gradient-to-b from-black/70 via-black/55 to-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-4 sm:p-8">
-      <div className="w-full max-w-2xl text-center mb-5">
+    <div className="absolute inset-0 z-30 overflow-y-auto bg-gradient-to-b from-black/80 via-black/60 to-black/85 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 sm:p-8">
+      {/* ink-brush divider top */}
+      <div className="w-24 h-px bg-gradient-to-r from-transparent via-rose-700/60 to-transparent mb-4" />
+      <div className="text-center mb-3">
+        <p className="text-rose-400/60 tracking-[0.4em] text-[10px] sm:text-xs mb-2">
+          THE RIVERBANK OATH
+        </p>
         <h1
           className="text-5xl sm:text-7xl font-black tracking-tight text-white"
-          style={{ textShadow: "0 0 30px rgba(255,120,60,0.6)" }}
+          style={{ textShadow: "0 0 30px rgba(200,40,30,0.6), 0 0 60px rgba(200,40,30,0.3)" }}
         >
-          SHADOW FIGHT
+          YOU ARE THE SHADOW
         </h1>
-        <p className="text-amber-300/80 tracking-[0.3em] text-xs sm:text-sm mt-1">
-          S H A D O W S &nbsp; O F &nbsp; T H E &nbsp; A R E N A
-        </p>
       </div>
-      <p className="text-center text-zinc-400 text-sm max-w-xl mx-auto mb-6">
-        Master the shadow arts. Punch, kick, roundhouse, and block your way past
-        eight deadly opponents across eight arenas. Only the greatest warrior
-        earns the title of Shadow Lord.
+      <p className="text-center text-zinc-400 text-sm sm:text-base max-w-xl mx-auto mb-2 italic leading-relaxed">
+        The river runs red. The sealers gather — heroes who once caged your kind.
+        They wear the faces of friends. They carry the chains of the old order.
+      </p>
+      <p className="text-center text-rose-300/70 text-sm max-w-lg mx-auto mb-7">
+        Cut them down. Claim their seals. Open the gate.
       </p>
 
-      <div className="text-center flex flex-wrap gap-3 justify-center mb-6">
+      <div className="text-center flex flex-wrap gap-3 justify-center mb-7">
         <button
           onClick={onStart}
-          className="px-8 py-3 rounded-full bg-gradient-to-r from-amber-500 to-rose-600 text-white font-black tracking-widest text-lg hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-rose-900/50"
+          className="px-8 py-3 rounded-full bg-gradient-to-r from-rose-700 via-red-600 to-rose-800 text-white font-black tracking-widest text-lg hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-rose-900/60 border border-rose-500/30"
         >
-          ENTER THE ARENA
+          BEGIN THE HUNT
         </button>
         <button
           onClick={onSelect}
           className="px-6 py-3 rounded-full border border-white/20 text-white font-bold tracking-wide hover:bg-white/10 active:scale-95 transition"
         >
-          Choose Opponent &amp; Arena
+          Choose Your Prey
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-400 max-w-3xl mx-auto">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-500 max-w-3xl mx-auto">
         <Control keys="WASD / ←→" label="Move" />
         <Control keys="W / ↑ / Space" label="Flip-Jump" />
         <Control keys="S / ↓" label="Crouch (duck)" />
@@ -635,6 +639,8 @@ function MenuPanel({
         <Control keys="I / U" label="Roundhouse" />
         <Control keys="L / C / Shift" label="Block" />
       </div>
+      {/* ink-brush divider bottom */}
+      <div className="w-24 h-px bg-gradient-to-r from-transparent via-rose-700/60 to-transparent mt-6" />
     </div>
   );
 }
@@ -665,12 +671,15 @@ function SelectPanel({
   onFight: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-black/75 backdrop-blur-sm flex flex-col justify-center p-4 sm:p-7">
-      <div className="w-full max-w-2xl mx-auto rounded-2xl border border-white/10 bg-zinc-950/80 backdrop-blur p-5 sm:p-7">
+    <div className="absolute inset-0 z-30 overflow-y-auto bg-black/80 backdrop-blur-sm flex flex-col justify-center p-4 sm:p-7">
+      <div className="w-full max-w-2xl mx-auto rounded-2xl border border-rose-900/30 bg-zinc-950/85 backdrop-blur p-5 sm:p-7">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl sm:text-2xl font-black text-white tracking-wide">
-          SELECT BATTLE
-        </h2>
+        <div>
+          <p className="text-rose-400/50 tracking-[0.3em] text-[10px] mb-0.5">THE SEALERS</p>
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+            CHOOSE YOUR PREY
+          </h2>
+        </div>
         <button
           onClick={onBack}
           className="text-xs sm:text-sm text-zinc-400 hover:text-white border border-white/15 rounded-full px-3 py-1.5"
@@ -682,7 +691,7 @@ function SelectPanel({
       {/* Opponent picker */}
       <div className="mb-5">
         <div className="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">
-          Opponent
+          The Sealers
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {OPPONENTS.map((o, i) => {
@@ -702,18 +711,26 @@ function SelectPanel({
                     : undefined
                 }
               >
-                <div
-                  className="w-7 h-7 mx-auto mb-1 rounded-full"
-                  style={{ background: o.rim, boxShadow: `0 0 12px ${o.rim}` }}
-                />
-                <div className="text-xs font-bold text-white">{o.name}</div>
-                <div className="text-[10px] text-zinc-500 truncate">
-                  {o.title}
+                <div className="flex items-center justify-center gap-1 mb-1">
+                  <span className="text-[9px] font-mono text-zinc-600">{i + 1}</span>
+                  <div
+                    className="w-6 h-6 rounded-full"
+                    style={{ background: o.rim, boxShadow: `0 0 10px ${o.rim}` }}
+                  />
+                  {o.blade && <span className="text-[8px] text-zinc-500">⚔</span>}
                 </div>
+                <div className="text-xs font-bold text-white">{o.name}</div>
+                <div className="text-[10px] text-zinc-500 truncate">{o.title}</div>
               </button>
             );
           })}
         </div>
+        {/* Story beat for selected opponent */}
+        {OPPONENTS[selOpp].story && (
+          <p className="mt-3 text-center text-rose-200/60 text-xs sm:text-sm italic leading-relaxed border-t border-white/5 pt-3">
+            {OPPONENTS[selOpp].story}
+          </p>
+        )}
       </div>
 
       {/* Scene picker */}
@@ -799,20 +816,21 @@ function EndPanel({
   secondary?: { label: string; onClick: () => void };
 }) {
   return (
-    <div className="absolute inset-0 z-30 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 text-center">
-      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-zinc-950/85 backdrop-blur p-6 sm:p-10">
+    <div className="absolute inset-0 z-30 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 text-center">
+      <div className="w-full max-w-xl rounded-2xl border border-rose-900/25 bg-zinc-950/90 backdrop-blur p-6 sm:p-10">
+      <div className="w-16 h-px bg-gradient-to-r from-transparent via-rose-700/50 to-transparent mx-auto mb-4" />
       <h2
         className="text-4xl sm:text-6xl font-black tracking-tight"
         style={{ color: accent, textShadow: `0 0 28px ${accent}88` }}
       >
         {title}
       </h2>
-      <p className="text-zinc-300 mt-2">{subtitle}</p>
-      {info && <p className="text-amber-300/80 text-sm mt-3">{info}</p>}
-      <div className="mt-6 flex flex-wrap gap-3 justify-center">
+      <p className="text-zinc-300 mt-3 italic leading-relaxed max-w-md mx-auto">{subtitle}</p>
+      {info && <p className="text-amber-300/60 text-xs mt-3 tracking-wide">{info}</p>}
+      <div className="mt-7 flex flex-wrap gap-3 justify-center">
         <button
           onClick={primary.onClick}
-          className="px-7 py-3 rounded-full bg-gradient-to-r from-amber-500 to-rose-600 text-white font-bold tracking-wide hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-rose-900/40"
+          className="px-7 py-3 rounded-full bg-gradient-to-r from-rose-700 via-red-600 to-rose-800 text-white font-bold tracking-wide hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-rose-900/50 border border-rose-500/25"
         >
           {primary.label}
         </button>

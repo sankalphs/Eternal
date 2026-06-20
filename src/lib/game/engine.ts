@@ -19,7 +19,7 @@ export const OPPONENTS: OpponentDef[] = [
     // Level 1 — forgiving tutorial opponent. Telegraphs, recovers slowly,
     // rarely blocks. A new player should win comfortably.
     name: "Lynx",
-    title: "The Initiate",
+    title: "The First Sealer",
     rim: "#f59e0b",
     hp: 70,
     damageMul: 0.55,
@@ -29,6 +29,7 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.55,
     combo: 1,
     bg: "sunset",
+    story: "The youngest of the order. He does not yet know the hero he hunts is already dead.",
     whiffPunish: 0.05,
     antiAir: 0.04,
     pressure: 0.1,
@@ -40,7 +41,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 2 — slightly faster, throws 2-hit strings, occasional block.
     name: "Bandit",
-    title: "The Outlaw",
+    title: "The Turncoat",
     rim: "#fbbf24",
     hp: 84,
     damageMul: 0.68,
@@ -50,6 +51,7 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.44,
     combo: 2,
     bg: "desert",
+    story: "Once a shadow-touched blade, now turned sealer. He remembers what you are.",
     whiffPunish: 0.15,
     antiAir: 0.12,
     pressure: 0.2,
@@ -71,6 +73,7 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.32,
     combo: 2,
     bg: "temple",
+    story: "He forged the first chains that bound your kind. His guard is absolute.",
     whiffPunish: 0.3,
     antiAir: 0.25,
     pressure: 0.32,
@@ -92,6 +95,7 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.26,
     combo: 3,
     bg: "bamboo",
+    story: "He taught the dead swordsman everything. Now he teaches you fear.",
     whiffPunish: 0.45,
     antiAir: 0.4,
     pressure: 0.45,
@@ -114,6 +118,7 @@ export const OPPONENTS: OpponentDef[] = [
     combo: 3,
     blade: true,
     bg: "moon",
+    story: "She was the swordsman's lover. She sees his face on you — and weeps as she strikes.",
     whiffPunish: 0.6,
     antiAir: 0.55,
     pressure: 0.55,
@@ -135,6 +140,7 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.22,
     combo: 3,
     bg: "volcano",
+    story: "A sealer who gave up finesse for fury. He will not stop until you are caged.",
     whiffPunish: 0.65,
     antiAir: 0.5,
     pressure: 0.68,
@@ -157,6 +163,7 @@ export const OPPONENTS: OpponentDef[] = [
     combo: 4,
     blade: true,
     bg: "snow",
+    story: "He commanded the original sealing. He has waited centuries for this rematch.",
     whiffPunish: 0.78,
     antiAir: 0.7,
     pressure: 0.72,
@@ -168,7 +175,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 8 — final boss: punishing, adaptive, rages when low, frame-perfect.
     name: "Titan",
-    title: "The Shadow Lord",
+    title: "The Gatekeeper",
     rim: "#a78bfa",
     hp: 190,
     damageMul: 1.4,
@@ -179,6 +186,7 @@ export const OPPONENTS: OpponentDef[] = [
     combo: 4,
     blade: true,
     bg: "moon",
+    story: "The last sealer. Defeat him, and the gates are yours to open — forever.",
     whiffPunish: 0.88,
     antiAir: 0.82,
     pressure: 0.82,
@@ -270,7 +278,7 @@ export class GameEngine {
       facing: 1,
       maxHp: 120,
       rim: "#e2e8f0",
-      name: "You",
+      name: "The Shadow",
       damageMul: 1.15,
       blade: true,
     });
@@ -380,7 +388,7 @@ export class GameEngine {
   }
 
   private vsText() {
-    return `${this.player.name} vs ${this.opponent.name}`;
+    return `The Shadow vs ${this.opponent.name} — ${this.opponent.title}`;
   }
 
   private setAnnounce(

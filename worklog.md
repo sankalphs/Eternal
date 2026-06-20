@@ -231,3 +231,24 @@ Stage Summary:
 - A 2:22 cinematic intro "THE RIVERBANK OATH" plays on load, scored exactly to the user's uploaded song, with a twisted Shadow-Fight-2-style story (8 acts + coda) synced to the song's musical sections.
 - Fully canvas-rendered evolving riverbank scene (mist, water, sun, gate, swordsman silhouette) that visually twists (river turns red, hero revealed as red-rimmed demon) with the narrative.
 - Story UI: begin/pause/skip controls, progress bar, act label, time counter, typewriter narration; auto-transitions to the game menu at the song's end (or on skip).
+
+---
+Task ID: 18
+Agent: main
+Task: Make the UI continue according to the story (not stale/generic) and more realistic/cinematic.
+
+Work Log:
+- Story thread: after the intro reveals "you are the shadow" (a demon in a hero's skin), all UI now continues that narrative. The opponents are reframed as "the Sealers" — the real heroes trying to cage the shadow again.
+- types.ts: added `story` field to OpponentDef for per-opponent narrative beats.
+- engine.ts: retitled all 8 opponents as sealers with story-relevant titles (Lynx→"The First Sealer", Bandit→"The Turncoat", Crane→"The Iron Monk", Hermit→"The Mountain Sage", Widow→"The Silent Blade", Butcher→"The Brute", Shogun→"The Warlord", Titan→"The Gatekeeper") + added a story beat line for each (e.g. "The youngest of the order. He does not yet know the hero he hunts is already dead."). Player name "You"→"The Shadow". VS announcement: "The Shadow vs {name} — {sealer title}".
+- ShadowFight.tsx MenuPanel: re-themed from generic "SHADOW FIGHT / ENTER THE ARENA" to "THE RIVERBANK OATH / YOU ARE THE SHADOW" with story text ("The river runs red. The sealers gather — heroes who once caged your kind... Cut them down. Claim their seals. Open the gate.") and buttons "BEGIN THE HUNT" / "Choose Your Prey". Cinematic styling: rose/red accents, ink-brush dividers, italic story text, darker backdrop.
+- SelectPanel: re-themed to "CHOOSE YOUR PREY / THE SEALERS" with each opponent's story beat displayed (italic, rose-tinted) when selected. Cards show numbered sealers with blade icons.
+- EndPanels: story-relevant text — VICTORY→"THE SEALER FALLS / {name} is broken. Another seal is yours — the gate groans wider." / "Hunt the Next Sealer"; DEFEATED→"DRIVEN BACK / {name}'s chains bite deep. You are caged once more... for now." / "Break Free"; CHAMPION→"THE GATEKEEPER / The last sealer falls. The gates swing wide... the river runs red." / "Begin Anew". Secondary button "The Riverbank" (not "Main Menu").
+- HUD: player label "SHADOW"→"THE SHADOW" (rose-tinted).
+- Verified via Agent Browser + VLM: menu shows "YOU ARE THE SHADOW" with story text + "BEGIN THE HUNT"; select panel shows "CHOOSE YOUR PREY" with sealer titles + story beats; in-game HUD shows "THE SHADOW" vs "LYNX / The First Sealer". No errors. Lint clean.
+
+Stage Summary:
+- The entire UI now continues the story from the intro: the menu, opponent-select, HUD, and end screens all reflect that the player IS the shadow (a demon in a hero's skin) and the opponents are the Sealers (the real heroes) trying to cage them.
+- Each of the 8 opponents has a story-relevant title + narrative beat shown in the select screen.
+- End panels have story-continuation text (sealer falls / driven back / gatekeeper).
+- Cinematic styling throughout: rose/blood-red accents, ink-brush dividers, italic story text, darker backdrops — more atmospheric and realistic than the previous generic UI.
