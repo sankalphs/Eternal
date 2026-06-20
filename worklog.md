@@ -129,3 +129,20 @@ Stage Summary:
 - REALISM: flip jump now tucks via physics-driven airTuck (peaks at apex, releases on descent) with exactly one clean rotation; roll is a low tucked ball with exactly one revolution.
 - MUSIC: traditional Chinese ensemble (erhu lead + guzheng ostinato + dizi flute + temple block/frame drum/big drum) in D major pentatonic — melodic, haunting, contemplative.
 - Lint clean, dev server healthy, browser-verified.
+
+---
+Task ID: 14
+Agent: main
+Task: Actually fix dodge (roll) not moving + improve jump physics (previous "fixes" didn't work).
+
+Work Log:
+- ROOT CAUSE of "roll doesn't move / doesn't dodge": the roll velocity was double-decayed to ~0 almost instantly. The roll update did `this.vx *= 0.96` each frame AND applyPhysics friction did `this.vx *= 0.8` each frame (roll wasn't exempted from friction like walking is). Combined decay 0.768/frame → velocity → ~0 in ~5 frames. The fighter spun in place (moved only 27px per roll).
+- FIX (roll): (1) roll update now MAINTAINS dash velocity: `this.vx = rollDir * ROLL_SPEED * speedMul` (no decay). (2) exempted roll from friction in applyPhysics (`state !== "roll"`). (3) ROLL_SPEED 380→400. Result: roll now moves ~160-235px (verified), a real evasive dash.
+- ROOT CAUSE of "jump physics not good": JUMP_VEL=500/GRAVITY=1380 gave only 86px peak height and ~0.4s air time — too low/fast to read the flip.
+- FIX (jump): JUMP_VEL 500→640, GRAVITY 1380→1180. Peak height now ~155px, air time ~1s (verified). Also fixed air control: was `this.vx = move * speed * 0.8` (hard-set, which slowed a forward jump from 1.15x to 0.8x mid-air) → now eases toward target with momentum preservation when no direction held. Forward jump now carries momentum properly (verified: 247px forward travel).
+- Verified via Agent Browser with real dispatched KeyboardEvents: roll right (E) moved 160px with maintained vx=400; directional roll (Down+Right) moved 235px; jump peak 155px high with clean landing (state→idle, spin=0); forward jump (W+D) carried 247px forward; VLM confirms airborne tucked flip pose at apex. No errors. Lint clean.
+
+Stage Summary:
+- Roll dodge now actually moves the fighter (~160-235px per roll) instead of spinning in place — fixed the double-decay bug.
+- Jump is higher (155px peak) and floatier (~1s air time) with proper momentum-preserving air control — feels like a real acrobatic flip.
+- Previous "fixes" claimed but not actually verified; this time tested with real input simulation and quantified the results.

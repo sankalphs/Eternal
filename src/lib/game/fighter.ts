@@ -12,11 +12,11 @@ import {
 
 export const GROUND_Y = 470; // virtual ground (canvas is scaled to fit)
 export const WALK_SPEED = 182;
-export const JUMP_VEL = 500;
-export const GRAVITY = 1380;
+export const JUMP_VEL = 640;
+export const GRAVITY = 1180;
 export const STAGE_LEFT = 70;
 export const STAGE_RIGHT = 890;
-export const ROLL_SPEED = 380; // quick dash speed during a roll
+export const ROLL_SPEED = 400; // quick dash speed during a roll
 
 export interface FighterOpts {
   x: number;
@@ -369,8 +369,8 @@ export class Fighter {
     }
     // Roll: locked tucked dash, i-frames, ends into idle.
     if (this.state === "roll") {
-      // keep dash velocity, slight decay
-      this.vx *= 0.96;
+      // maintain dash velocity through the roll so it covers real ground
+      this.vx = this.rollDir * ROLL_SPEED * this.speedMul;
       if (this.progress >= 1) {
         this.setState("idle");
         this.spin = 0;
@@ -496,14 +496,16 @@ export class Fighter {
           this.setState("idle");
       }
     } else {
-      // air control
+      // air control — preserve momentum; nudge toward held direction
       let move = 0;
       if (input.left) move -= 1;
       if (input.right) move += 1;
-      this.vx = move * WALK_SPEED * 0.8 * this.speedMul;
-      if (this.state === "jump") {
-        // keep jump state until landing
+      if (move !== 0) {
+        const target = move * WALK_SPEED * 0.85 * this.speedMul;
+        // ease toward target so air steering feels weighty, not snappy
+        this.vx += (target - this.vx) * Math.min(1, dt * 6);
       }
+      // if no direction held, keep current horizontal momentum (realistic)
     }
 
     if (this.state === "idle") this.walkPhase += dt * 1.5;
@@ -532,8 +534,8 @@ export class Fighter {
       this.onGround = false;
     }
 
-    // friction when grounded & not walking
-    if (this.onGround && !this.isWalkingInput()) {
+    // friction when grounded & not walking/rolling
+    if (this.onGround && !this.isWalkingInput() && this.state !== "roll") {
       this.vx *= 0.8;
     }
 
