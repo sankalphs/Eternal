@@ -117,20 +117,42 @@ export function poseFor(c: PoseCtx): Pose {
       return withBase(target);
     }
     case "jump": {
-      // legs tucked, arms slightly out
+      // Acrobatic forward flip: tuck hard (knees to chest, arms in). The body
+      // rotation (spin) is applied by the renderer, so the pose just tucks.
       const jp = c.p;
+      // tuck peaks mid-flight
       const tuck = Math.sin(Math.min(jp, 1) * Math.PI);
       return {
         ...BASE,
-        hipDrop: -2,
-        bThigh: -0.1 + 0.9 * tuck,
-        bShin: -0.1 + 1.4 * tuck,
-        fThigh: 0.2 + 1.0 * tuck,
-        fShin: 0.2 + 1.5 * tuck,
-        fArm: BASE.fArm - 0.8 * tuck,
-        bArm: BASE.bArm - 0.8 * tuck,
-        fFore: 1.6,
-        bFore: 1.7,
+        hipDrop: -4 - 6 * tuck,
+        torsoLean: 0.15 + 0.3 * tuck,
+        headTilt: 0.25 * tuck,
+        bThigh: -0.1 + 1.55 * tuck,
+        bShin: -0.1 + 1.9 * tuck,
+        fThigh: 0.2 + 1.65 * tuck,
+        fShin: 0.2 + 2.0 * tuck,
+        fArm: BASE.fArm - 1.1 * tuck,
+        bArm: BASE.bArm - 1.1 * tuck,
+        fFore: 1.5 + 0.3 * tuck,
+        bFore: 1.6 + 0.3 * tuck,
+      };
+    }
+    case "roll": {
+      // Tucked ball: everything curled tight. Spin (renderer) does the roll.
+      const tuck = Math.sin(Math.min(c.p, 1) * Math.PI);
+      return {
+        ...BASE,
+        hipDrop: 26 - 6 * tuck,
+        torsoLean: 0.5 + 0.4 * tuck,
+        headTilt: 0.4 + 0.3 * tuck,
+        bThigh: 1.5 + 0.2 * tuck,
+        bShin: 2.4,
+        fThigh: 1.7 + 0.2 * tuck,
+        fShin: 2.5,
+        fArm: 1.3,
+        fFore: 1.2,
+        bArm: 1.0,
+        bFore: 1.1,
       };
     }
     case "punch": {
@@ -478,6 +500,7 @@ export const STATE_DUR: Record<string, number> = {
   hit: 0.26,
   knockdown: 0.65,
   getup: 0.5,
+  roll: 0.5,
 };
 
 // Attack active-frame windows (progress within the attack state).

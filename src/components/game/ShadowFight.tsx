@@ -58,6 +58,8 @@ const KEY_MAP: Record<string, keyof InputState> = {
   KeyX: "kick",
   KeyI: "roundhouse",
   KeyU: "roundhouse",
+  KeyE: "roll",
+  KeyO: "roll",
   KeyL: "block",
   KeyC: "block",
   ShiftLeft: "block",
@@ -83,6 +85,7 @@ export default function ShadowFight() {
     punch: false,
     kick: false,
     roundhouse: false,
+    roll: false,
     block: false,
   });
 
@@ -217,6 +220,7 @@ export default function ShadowFight() {
         punch: false,
         kick: false,
         roundhouse: false,
+        roll: false,
         block: false,
       };
     };
@@ -394,8 +398,8 @@ export default function ShadowFight() {
         {/* Desktop controls hint */}
         {started && snap.phase === "fight" && (
           <div className="hidden md:flex absolute bottom-2 left-1/2 -translate-x-1/2 z-20 gap-2 text-[10px] text-white/40 pointer-events-none flex-wrap justify-center px-2">
-            <Key>WASD</Key>/<Key>←→</Key> Move <Key>W/Space</Key> Jump <Key>S/↓</Key> Crouch
-            <Key>J</Key> Punch <Key>K</Key> Kick <Key>I</Key> Roundhouse <Key>L</Key> Block
+            <Key>WASD</Key>/<Key>←→</Key> Move <Key>W/Space</Key> Flip-Jump <Key>S/↓</Key> Crouch
+            <Key>E</Key> Roll <Key>J</Key> Punch <Key>K</Key> Kick <Key>I</Key> Roundhouse <Key>L</Key> Block
           </div>
         )}
       </div>
@@ -561,7 +565,8 @@ function TouchControls({
         {mk("punch", "P", "h-12 bg-amber-500/20 border-amber-400/40 text-xs")}
         {mk("kick", "K", "h-12 bg-fuchsia-500/20 border-fuchsia-400/40 text-xs")}
         {mk("roundhouse", "RH", "h-12 bg-rose-500/20 border-rose-400/40 text-[10px]")}
-        <div className="col-span-3">{mk("block", "BLOCK", "h-9 bg-sky-500/20 border-sky-400/40 text-xs")}</div>
+        {mk("roll", "ROLL", "h-9 bg-emerald-500/20 border-emerald-400/40 text-[10px]")}
+        <div className="col-span-2">{mk("block", "BLOCK", "h-9 bg-sky-500/20 border-sky-400/40 text-xs")}</div>
       </div>
     </div>
   );
@@ -610,13 +615,13 @@ function MenuPanel({
 
       <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-400 max-w-3xl mx-auto">
         <Control keys="WASD / ←→" label="Move" />
-        <Control keys="W / ↑ / Space" label="Jump" />
+        <Control keys="W / ↑ / Space" label="Flip-Jump" />
         <Control keys="S / ↓" label="Crouch (duck)" />
+        <Control keys="E / O" label="Roll (dodge)" />
         <Control keys="J / Z" label="Punch" />
         <Control keys="K / X" label="Kick" />
         <Control keys="I / U" label="Roundhouse" />
         <Control keys="L / C / Shift" label="Block" />
-        <Control keys="Crouch/Jump" label="Dodge hits" />
       </div>
     </div>
   );

@@ -17,6 +17,8 @@ export class EnemyAI {
 
   oppWasAttacking = false;
   pendingBlock = false;
+  pendingRoll = false;
+  pendingRollDir: 1 | -1 = 1;
   reactTimer = 0;
 
   jumpCooldown = 1.5;
@@ -33,6 +35,7 @@ export class EnemyAI {
     this.recoverTimer = 0;
     this.oppWasAttacking = false;
     this.pendingBlock = false;
+    this.pendingRoll = false;
     this.reactTimer = 0;
   }
 
@@ -45,6 +48,7 @@ export class EnemyAI {
       punch: false,
       kick: false,
       roundhouse: false,
+      roll: false,
       block: false,
     };
 
@@ -58,15 +62,37 @@ export class EnemyAI {
     const adist = Math.abs(dist);
     const dirToOpp = dist >= 0 ? 1 : -1;
 
-    // ---- Defensive reaction: detect a new player attack and maybe block.
+    // ---- Defensive reaction: detect a new player attack and either block or
+    // roll-dodge away (SF2-style evasion).
     const oppAttacking = opp.isAttacking();
     if (oppAttacking && !this.oppWasAttacking) {
-      if (adist < 150 && Math.random() < this.def.blockChance) {
-        this.pendingBlock = true;
-        this.reactTimer = this.def.reaction;
+      if (adist < 160) {
+        const dodgeRoll = Math.random() < this.def.blockChance * 0.7;
+        if (dodgeRoll) {
+          // roll away from the player
+          const away = dirToOpp === 1 ? -1 : 1;
+          this.pendingRollDir = away;
+          this.pendingRoll = true;
+          this.reactTimer = this.def.reaction;
+        } else if (Math.random() < this.def.blockChance) {
+          this.pendingBlock = true;
+          this.reactTimer = this.def.reaction;
+        }
       }
     }
     this.oppWasAttacking = oppAttacking;
+    if (this.pendingRoll) {
+      this.reactTimer -= dt;
+      if (this.reactTimer <= 0) {
+        // set the roll input briefly (edge-triggered)
+        input.roll = true;
+        if (this.pendingRollDir === 1) input.right = true;
+        else input.left = true;
+        this.pendingRoll = false;
+        this.recoverTimer = 0.3;
+        return input;
+      }
+    }
     if (this.pendingBlock) {
       this.reactTimer -= dt;
       if (this.reactTimer <= 0) {

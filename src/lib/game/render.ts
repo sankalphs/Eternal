@@ -554,6 +554,12 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   ctx.save();
   ctx.translate(f.x, 0);
   if (f.facing === -1) ctx.scale(-1, 1);
+  // acrobatic body rotation (flip jump / roll) around the hip
+  if (f.spin) {
+    ctx.translate(0, j.hip[1]);
+    ctx.rotate(f.spin);
+    ctx.translate(0, -j.hip[1]);
+  }
 
   ctx.lineCap = "round";
   ctx.lineJoin = "round";

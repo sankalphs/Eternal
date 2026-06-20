@@ -12,10 +12,12 @@ import {
 
 export const GROUND_Y = 470; // virtual ground (canvas is scaled to fit)
 export const WALK_SPEED = 182;
-export const JUMP_VEL = 460;
+export const JUMP_VEL = 470;
 export const GRAVITY = 1500;
 export const STAGE_LEFT = 70;
 export const STAGE_RIGHT = 890;
+export const ROLL_SPEED = 380; // quick dash speed during a roll
+export const SPIN_SPEED = Math.PI * 2 * 1.5; // rotations per second for flip/roll
 
 export interface FighterOpts {
   x: number;
@@ -55,11 +57,14 @@ export class Fighter {
   blockHeld = false;
   invuln = 0;
   blade: boolean;
+  spin = 0; // whole-body rotation (radians) for flip/roll
+  rollDir: 1 | -1 = 1;
 
   // buffered input edge
   private prevPunch = false;
   private prevKick = false;
   private prevRoundhouse = false;
+  private prevRoll = false;
 
   // knockdown get-up
   downTimer = 0;
@@ -111,6 +116,7 @@ export class Fighter {
     if (this.state === "getup") return false;
     if (this.state === "punch" || this.state === "kick" || this.state === "roundhouse")
       return false;
+    if (this.state === "roll") return false;
     if (this.state === "victory" || this.state === "defeated") return false;
     return true;
   }
@@ -142,6 +148,7 @@ export class Fighter {
       } else if (s !== "hit") {
         this.currentAttack = null;
       }
+      if (s === "jump" || s === "roll") this.spin = 0;
     }
   }
 
@@ -151,17 +158,20 @@ export class Fighter {
     this.setState(type);
   }
 
+  // Rolling dodge: a quick tucked dash with i-frames (evades all hits).
+  roll(dir: 1 | -1) {
+    if (!this.canAct()) return;
+    if (!this.onGround) return;
+    this.rollDir = dir;
+    this.vx = dir * ROLL_SPEED * this.speedMul;
+    this.setState("roll");
+    // invulnerable for the whole roll so it reliably evades attacks
+    this.invuln = Math.max(this.invuln, STATE_DUR.roll);
+  }
+
   startBlock() {
     if (!this.canAct()) return;
     if (this.state !== "block") this.setState("block");
-  }
-
-  jump() {
-    if (!this.canAct()) return;
-    if (!this.onGround) return;
-    this.vy = -JUMP_VEL;
-    this.onGround = false;
-    this.setState("jump");
   }
 
   // Apply a hit from an attacker. Returns true if it landed.
@@ -175,7 +185,8 @@ export class Fighter {
     if (
       this.state === "knockdown" ||
       this.state === "defeated" ||
-      this.state === "getup"
+      this.state === "getup" ||
+      this.state === "roll"
     )
       return { hit: false, blocked: false, dmg: 0 };
 
@@ -289,6 +300,7 @@ export class Fighter {
       this.state !== "punch" &&
       this.state !== "kick" &&
       this.state !== "roundhouse" &&
+      this.state !== "roll" &&
       this.state !== "hit" &&
       this.state !== "knockdown" &&
       this.state !== "getup" &&
@@ -296,6 +308,11 @@ export class Fighter {
       this.state !== "defeated"
     ) {
       this.facing = opp.x >= this.x ? 1 : -1;
+    }
+
+    // accumulate body spin for acrobatic states (flip jump / roll)
+    if (this.state === "jump" || this.state === "roll") {
+      this.spin += dt * SPIN_SPEED * this.facing;
     }
 
     // Knockdown / getup handling.
@@ -329,6 +346,17 @@ export class Fighter {
     }
     if (this.state === "getup") {
       if (this.progress >= 1) this.setState("idle");
+      this.applyPhysics(dt);
+      return;
+    }
+    // Roll: locked tucked dash, i-frames, ends into idle.
+    if (this.state === "roll") {
+      // keep dash velocity, slight decay
+      this.vx *= 0.96;
+      if (this.progress >= 1) {
+        this.setState("idle");
+        this.spin = 0;
+      }
       this.applyPhysics(dt);
       return;
     }
@@ -385,13 +413,42 @@ export class Fighter {
       return;
     }
 
-    // Jump.
+    // Acrobatic flip jump (SF2-style). Press up to leap into a forward flip;
+    // holding a direction gives forward momentum.
     if (input.up && this.onGround) {
-      this.jump();
+      this.vy = -JUMP_VEL;
+      this.onGround = false;
+      let move = 0;
+      if (input.left) move -= 1;
+      if (input.right) move += 1;
+      if (move !== 0) {
+        this.vx = move * WALK_SPEED * 1.15 * this.speedMul;
+        // face the direction of the flip
+        this.facing = move >= 0 ? 1 : -1;
+      }
+      this.setState("jump");
       return;
     }
 
-    // Crouch.
+    // Rolling dodge (SF2-style). Dedicated roll key rolls toward the opponent;
+    // holding down + a direction rolls that way. Quick, i-framed, evades hits.
+    const rollEdge = input.roll && !this.prevRoll;
+    this.prevRoll = input.roll;
+    const downHeld = input.down;
+    const dirHeld = input.left ? -1 : input.right ? 1 : 0;
+    if (this.onGround && (rollEdge || (downHeld && dirHeld !== 0))) {
+      let dir: 1 | -1;
+      if (dirHeld !== 0) {
+        dir = dirHeld === 1 ? 1 : -1;
+      } else {
+        // roll toward opponent by default
+        dir = opp.x >= this.x ? 1 : -1;
+      }
+      this.roll(dir);
+      return;
+    }
+
+    // Crouch (down alone).
     if (input.down && this.onGround) {
       this.crouchAmt = lerpTo(this.crouchAmt, 1, dt, 10);
       if (this.state !== "crouch") this.setState("crouch");
@@ -450,7 +507,7 @@ export class Fighter {
         this.vy = 0;
         if (this.state === "jump") {
           this.setState("idle");
-          // dust
+          this.spin = 0;
         }
       }
     } else {

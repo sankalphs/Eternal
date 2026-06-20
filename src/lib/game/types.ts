@@ -34,6 +34,7 @@ export type FighterState =
   | "walk_fwd"
   | "walk_back"
   | "jump"
+  | "roll"
   | "crouch"
   | "punch"
   | "kick"
@@ -125,5 +126,6 @@ export interface InputState {
   punch: boolean;
   kick: boolean;
   roundhouse: boolean;
+  roll: boolean;
   block: boolean;
 }

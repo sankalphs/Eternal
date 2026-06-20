@@ -89,3 +89,24 @@ Stage Summary:
 - Selection: full opponent (8) + arena (7 + auto) select screen reachable from the menu; tournament mode still via ENTER THE ARENA.
 - VFX: ultra-realistic — additive glowing shockwaves, energy streak bursts, colored impact flash, punch-zoom, slow-motion, hitstop, energy auras, enriched sparks; dramatic KO finisher.
 - Lint clean, dev server healthy, browser-verified.
+
+---
+Task ID: 12
+Agent: main
+Task: Improve the music (structured melodic SF2-style song) + add SF2-style acrobatic flip jump and rolling dodge.
+
+Work Log:
+- types.ts: added "roll" FighterState; added "roll" to InputState.
+- poses.ts: reworked jump pose into an acrobatic tucked flip (knees-to-chest, arms in, head tuck); added "roll" tucked-ball pose; added roll:0.5 to STATE_DUR.
+- fighter.ts: added spin field (whole-body rotation), rollDir, prevRoll; ROLL_SPEED/SPIN_SPEED constants. Added roll(dir) method (quick dash, i-frames for full roll duration). setState resets spin on entering jump/roll. update() accumulates spin during jump/roll (SPIN_SPEED*facing), handles roll state (dash + decay, ends→idle, spin reset), resets spin on jump landing. takeHit treats "roll" as invulnerable. canAct/face exclude roll. Removed unused jump() (inlined flip jump in handleInput). handleInput: up = acrobatic flip jump with directional momentum + face-flip; roll = dedicated roll key (toward opponent) OR down+direction (that way); down alone still crouches.
+- render.ts: drawFighter applies f.spin rotation around the hip for the flip/roll, after facing mirror.
+- audio.ts (rewritten): structured 4-bar melodic composition in D Phrygian dominant. i–VI–VII–i progression (Dm–Bb–C–Dm). Layers: low drone (D2+A2+Eb3 sawtooth + tremolo LFO), sub-bass on root (quarter notes), 8th-note arpeggio ostinato over each chord (root/third/fifth/octave), sustained saw pad chord per bar, driving dhol/taiko drums (gallop kick, snare backbeat, 8th/16th hats, ethnic clave taps, tom fill), noise riser into the drop, and a haunting duduk lead theme (two-bar descending Phrygian motif) in the build+drop bars. Combat-intensity layering (extra gallop kicks, 16th hats, arp shimmer at high intensity). Kept impact stingers (impactBoom/metallicClang/whoosh) for punch/kick/roundhouse/block/ko.
+- ai.ts: AI now roll-dodges away from player attacks (probabilistic, scaled by blockChance) in addition to blocking; added pendingRoll/pendingRollDir fields.
+- ShadowFight.tsx: KEY_MAP roll on E/O; keysRef + blur reset include roll; touch controls add a ROLL button; desktop hint + menu controls list updated (Flip-Jump, Roll). 
+- page.tsx: footer adds E Roll.
+- Verified via Agent Browser: flip jump enters state=jump with spin accumulating (VLM confirms tucked/rotating pose); roll enters state=roll with progress 0→1, invuln 0.5s i-frames, forward dash (vx=380, x moves), spin accumulating (verified via direct roll() + state checks); improved music plays with no errors. Lint clean.
+
+Stage Summary:
+- Music: now a structured, melodic SF2-style fighting song (Phrygian dominant i–VI–VII–i, ostinato arp, duduk lead theme, full tribal drums, riser+drop, intensity layering) — much more song-like and memorable than before.
+- Movement: up = acrobatic forward-flip jump (tucked + body rotation, SF2-style); E/O or down+direction = rolling dodge (quick tucked dash with full i-frames that evades all hits). AI also roll-dodges.
+- Lint clean, dev server healthy, browser-verified.

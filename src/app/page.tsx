@@ -70,6 +70,10 @@ export default function Home() {
               <span className="ml-1">Roundhouse</span>
             </span>
             <span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 font-mono text-[10px] text-zinc-300">E</kbd>
+              <span className="ml-1">Roll</span>
+            </span>
+            <span>
               <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 font-mono text-[10px] text-zinc-300">L</kbd>
               <span className="ml-1">Block</span>
             </span>

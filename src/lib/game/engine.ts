@@ -193,6 +193,7 @@ export class GameEngine {
     punch: false,
     kick: false,
     roundhouse: false,
+    roll: false,
     block: false,
   };
 
