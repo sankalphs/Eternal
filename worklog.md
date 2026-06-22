@@ -351,3 +351,23 @@ Stage Summary:
 - Fighters confirmed as solid filled shadow silhouettes (fill="#060606", ctx.fill(), shadowBlur=0) — verified both in source and via canvas pixel sampling (110,902 black px).
 - Game verified running end-to-end via Agent Browser (intro → menu → fight, no errors).
 - Dev server running on port 3000.
+
+---
+Task ID: DOC-2
+Agent: main
+Task: Fix unfilled hands — fighters' hands were not solid filled silhouettes.
+
+Work Log:
+- Inspected drawFighter() in render.ts. Found two bugs:
+  1. Back arm: taperedLimb(bElbow→bHand, 8·wa, 5·wa) tapered to radius 5·wa at the hand, but there was NO joint()/fist call at j.bHand — the back hand had no filled cap beyond the forearm's end-cap.
+  2. Front arm: joint(j.fHand, 3) drew a circle of radius 3, but the forearm ended at radius 5·wa (=5 for lean). The hand circle was SMALLER than the forearm taper end, creating a notch/gap instead of a filled fist.
+- Added a new fist(ctx, p, r) helper (next to foot()) that draws a solid filled circle with fillStyle="#060606".
+- Added fist(ctx, j.bHand, 5.5·wa) for the back hand (was missing entirely).
+- Replaced joint(j.fHand, 3) with fist(ctx, j.fHand, 5.5·wa) for the front hand — now radius 5.5·wa (slightly larger than the forearm taper of 5·wa) so the hand reads as a knuckle/fist with no notch.
+- Verified: dev server recompiled cleanly (no errors in dev.log), Agent Browser confirms fight renders with 136,813 solid black pixels (14.8% of canvas, up from before), no console/runtime errors.
+
+Stage Summary:
+- Both hands (back + front) now render as solid filled fists — no gaps, no notches.
+- fist() helper added with radius 5.5·wa (scaled by body type), larger than the forearm taper end (5·wa) so it reads as a knuckle.
+- Back hand was previously missing its filled cap entirely; now fixed.
+- Game verified running end-to-end via Agent Browser with no errors.

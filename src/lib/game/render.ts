@@ -632,6 +632,7 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   taperedLimb(j.bShoulder, j.bElbow, 11 * wa, 8 * wa);
   taperedLimb(j.bElbow, j.bHand, 8 * wa, 5 * wa);
   joint(j.bElbow, 4);
+  fist(ctx, j.bHand, 5.5 * wa);
   // torso
   taperedLimb(j.hip, j.chest, 20 * wt, 14 * wt);
   joint(j.hip, 20 * wt);
@@ -665,7 +666,7 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   taperedLimb(j.fShoulder, j.fElbow, 11 * wa, 8 * wa);
   taperedLimb(j.fElbow, j.fHand, 8 * wa, 5 * wa);
   joint(j.fElbow, 4);
-  joint(j.fHand, 3);
+  fist(ctx, j.fHand, 5.5 * wa);
 
   // blade glint along the striking limb
   if (f.blade && inActive) {
@@ -735,6 +736,15 @@ function foot(ctx: CanvasRenderingContext2D, foot: [number, number], w: number) 
   ctx.fillStyle = "#060606";
   ctx.beginPath();
   ctx.ellipse(foot[0] + 4, foot[1] - 1, w * 0.6, 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// filled fist — a solid circle slightly larger than the forearm taper end so
+// the hand reads as a knuckle/fist (no notch where the forearm meets the hand).
+function fist(ctx: CanvasRenderingContext2D, p: [number, number], r: number) {
+  ctx.fillStyle = "#060606";
+  ctx.beginPath();
+  ctx.arc(p[0], p[1], r, 0, Math.PI * 2);
   ctx.fill();
 }
 
