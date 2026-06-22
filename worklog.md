@@ -489,3 +489,40 @@ Stage Summary:
 - Option C (Training Lab): full UI panel with live stats, reward chart, batch controls, progress bar, and info. Background training yields to UI thread; auto-saves to localStorage.
 - The 8 story opponents still use the rule-based EnemyAI (unchanged). RL Ghost coexists as a separate mode.
 - Both features verified end-to-end via Agent Browser + VLM.
+
+---
+Task ID: RL-3
+Agent: main
+Task: Fix the broken reward function — agent wasn't learning (reward stuck at -16.5, entropy 2.259 = uniform random after 4500 episodes).
+
+Root cause analysis:
+1. Whiff penalty (-0.5) dominated the reward — with random policy, agents whiffed constantly (~-15/episode from whiffs alone). The agent learned "attacking is bad" but not-attacking gives ~0, so it was stuck.
+2. Block resolution was BROKEN: `oppBlocking = isP1 ? false : false` — always false. Blocking never worked in the sim.
+3. Reward was ASYMMETRIC: attacker got +dmg but defender got 0 (not -dmg). The reward signal wasn't zero-sum.
+4. Entropy never decayed (fixed 0.01 coef) — policy stayed near-uniform forever.
+5. State vector was poor: velocity hardcoded 0, isAttacking derived from stun (wrong), no attack-cooldown or block-state features.
+6. Self-play against the same policy created a non-stationary mirror match.
+
+Fixes applied to rl.ts:
+- REWARD REWRITE: symmetric HP-delta rewards (oppHpLost - selfHpLost) * 1.5. No whiff penalty. No time penalty. Block bonus ONLY when damage was actually prevented (not just when opponent is in cooldown). Turtle penalty (-0.05) for holding block when not under attack. KO bonus ±25.
+- BLOCK FIX: applySimAction now properly reads the opponent's block state (s.block2/s.block1) and reduces damage to 18% when blocking (matching the game).
+- STATE ENRICHED: state vector now includes self/opp attack cooldown, block state, and stun state as separate features (was conflating stun with attacking).
+- ENTROPY DECAY: coef starts at 0.02, linearly decays to 0.001 over 1500 episodes. Policy explores early, commits late.
+- HIGHER LR: 3e-4 → 1e-3. More epochs: 4 → 6.
+- FROZEN OPPONENT: always use a frozen opponent (synced every 30 episodes) instead of alternating with self-play. Stable training target.
+- ACTION ORDER: randomized who acts first each step to avoid second-mover bias.
+- STORAGE KEY: v1 → v2 (old broken models don't load).
+
+Verification:
+- 200-episode test: reward +3.4 (was -16.5), value loss 0.047 (was 0.479), policy starting to structure.
+- 800-episode test: policy committed to punch (18%), kick (16%), approach (12%), roll (10%). Block no longer dominant. Value loss 0.003.
+- Browser test (100 episodes): value loss 0.002, reward -0.3 (near-zero = correct for self-play), entropy 2.297 (will decay as training continues).
+
+Stage Summary:
+- Reward function completely rewritten — symmetric, dense, shaped.
+- Block resolution fixed (was always false).
+- State vector enriched with cooldown/block/stun features.
+- Entropy decay schedule (0.02 → 0.001 over 1500 eps).
+- Higher learning rate (1e-3) and more epochs (6).
+- Frozen-opponent self-play (stable target, synced every 30 eps).
+- Agent now learns a real combat strategy (punch + kick + approach) instead of turtling or staying random.

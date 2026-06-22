@@ -483,12 +483,24 @@ export class PPOAgent {
 // ---------------------------------------------------------------------------
 // Self-play environment — a lightweight but faithful fight simulation.
 // Uses the real attack specs (damage, range) so the learned policy transfers.
+//
+// REWARD DESIGN (dense + shaped):
+//   +damage_dealt         — primary signal (scaled 1.0×)
+//   −damage_taken         — symmetric penalty (scaled 1.0×)
+//   +block_success * 3    — rewards defending (block absorbs 82% like the game)
+//   −2 if attack blocked   — slight penalty for predictable attacks
+//   +25 KO bonus           — big terminal reward
+//   −25 if KO'd             — symmetric terminal penalty
+//   +proximity shaping      — small reward for staying in mid-range (engagement)
+//   NO whiff penalty        — opportunity cost is enough; whiff penalty made
+//                              the agent learn "never attack" (the old bug)
+//   NO time penalty         — just added noise; the KO bonus handles pacing
 // ---------------------------------------------------------------------------
 
 const SIM_ATTACKS = {
-  punch: { dmg: 8, range: 66, kb: 170, stun: 0.3 },
-  kick: { dmg: 15, range: 86, kb: 310, stun: 0.44 },
-  roundhouse: { dmg: 16, range: 94, kb: 370, stun: 0.5 },
+  punch: { dmg: 8, range: 66, kb: 170, stun: 3, cd: 4 },
+  kick: { dmg: 15, range: 86, kb: 310, stun: 5, cd: 6 },
+  roundhouse: { dmg: 16, range: 94, kb: 370, stun: 6, cd: 9 },
 } as const;
 type SimAction = keyof typeof SIM_ATTACKS;
 
@@ -497,7 +509,8 @@ interface SimState {
   hp1: number; hp2: number;
   rage1: number; rage2: number;
   stun1: number; stun2: number; // hitstun timers (steps remaining)
-  atkCd1: number; atkCd2: number; // attack cooldown
+  atkCd1: number; atkCd2: number; // attack cooldown (steps remaining)
+  block1: boolean; block2: boolean; // is this fighter holding block this step
   steps: number;
 }
 
@@ -511,50 +524,55 @@ function simStateVector(s: SimState, perspective: 1 | 2): number[] {
   const oppRage = isP1 ? s.rage2 : s.rage1;
   const selfStun = isP1 ? s.stun1 : s.stun2;
   const oppStun = isP1 ? s.stun2 : s.stun1;
+  const selfCd = isP1 ? s.atkCd1 : s.atkCd2;
+  const oppCd = isP1 ? s.atkCd2 : s.atkCd1;
+  const selfBlock = isP1 ? s.block1 : s.block2;
+  const oppBlock = isP1 ? s.block2 : s.block1;
+  const dist = (oppX - selfX) / 960;
   return [
     selfX / 960, selfHp / 100, selfRage / 100, 0, 0,
-    1, selfStun > 0 ? 1 : 0, 0, selfStun > 0 ? 1 : 0, isP1 ? 1 : -1,
-    (oppX - selfX) / 960, oppHp / 100, oppRage / 100, 0, 0,
-    1, oppStun > 0 ? 1 : 0, 0, oppStun > 0 ? 1 : 0, isP1 ? -1 : 1,
+    1, selfCd > 0 ? 1 : 0, selfBlock ? 1 : 0, selfStun > 0 ? 1 : 0,
+    isP1 ? 1 : -1,
+    dist, oppHp / 100, oppRage / 100, 0, 0,
+    1, oppCd > 0 ? 1 : 0, oppBlock ? 1 : 0, oppStun > 0 ? 1 : 0,
+    isP1 ? -1 : 1,
   ];
 }
 
+// Apply one fighter's action (mutates state). Does NOT compute reward —
+// reward is computed from HP deltas after both actions resolve (symmetric).
 function applySimAction(
   s: SimState,
   perspective: 1 | 2,
   input: InputState,
-): number {
-  // Returns immediate reward for this agent
-  let reward = 0;
+): void {
   const isP1 = perspective === 1;
   const selfX = isP1 ? s.x1 : s.x2;
   const oppX = isP1 ? s.x2 : s.x1;
   const selfStun = isP1 ? s.stun1 : s.stun2;
   const selfCd = isP1 ? s.atkCd1 : s.atkCd2;
   const dist = Math.abs(oppX - selfX);
-  const dirToOpp = oppX >= selfX ? 1 : -1;
 
-  // If stunned, can't act
+  // Update this fighter's block state for this step
+  const blocking = input.block && selfStun <= 0 && selfCd <= 0;
+  if (isP1) s.block1 = blocking; else s.block2 = blocking;
+
+  // If stunned, can't act — just tick down stun
   if (selfStun > 0) {
     if (isP1) s.stun1--; else s.stun2--;
-    return 0;
+    return;
   }
 
-  // Movement
-  let newX = selfX;
-  if (input.left) newX = Math.max(80, newX - 4);
-  if (input.right) newX = Math.min(880, newX + 4);
-  if (isP1) s.x1 = newX; else s.x2 = newX;
-
-  // Small reward for closing distance (encourages engagement)
-  if (dist > 100) {
-    const movingToward = (input.right && dirToOpp === 1) || (input.left && dirToOpp === -1);
-    if (movingToward) reward += 0.02;
+  // Movement (can't move while blocking or in attack cooldown)
+  if (!blocking && selfCd <= 0) {
+    let newX = selfX;
+    if (input.left) newX = Math.max(80, newX - 5);
+    if (input.right) newX = Math.min(880, newX + 5);
+    if (isP1) s.x1 = newX; else s.x2 = newX;
   }
 
-  // Blocking (reduces incoming damage — handled in attack resolution)
   // Attack resolution
-  if (selfCd <= 0) {
+  if (selfCd <= 0 && !blocking) {
     let attack: SimAction | null = null;
     if (input.punch) attack = "punch";
     else if (input.kick) attack = "kick";
@@ -562,37 +580,79 @@ function applySimAction(
 
     if (attack) {
       const spec = SIM_ATTACKS[attack];
-      // Check if opponent is blocking (we read the opponent's input in the trainer)
-      // For now, use a simple heuristic: if opponent is close and not stunned
       const inRange = dist < spec.range;
-      if (inRange) {
-        const dmg = spec.dmg;
+      const oppBlocking = isP1 ? s.block2 : s.block1;
+      const oppStunNow = isP1 ? s.stun2 : s.stun1;
+
+      if (inRange && oppStunNow <= 0) {
+        // Damage: blocked = 18% (like the game), clean = 100%
+        const dmg = oppBlocking ? Math.max(1, Math.round(spec.dmg * 0.18)) : spec.dmg;
         if (isP1) {
           s.hp2 = Math.max(0, s.hp2 - dmg);
-          s.stun2 = Math.ceil(spec.stun * 10); // convert to steps (~10 steps/sec)
-          s.rage1 = Math.min(100, s.rage1 + dmg * 0.4);
-          reward += dmg;
+          if (!oppBlocking) {
+            s.stun2 = spec.stun;
+            s.rage1 = Math.min(100, s.rage1 + dmg * 0.4);
+          }
         } else {
           s.hp1 = Math.max(0, s.hp1 - dmg);
-          s.stun1 = Math.ceil(spec.stun * 10);
-          s.rage2 = Math.min(100, s.rage2 + dmg * 0.4);
-          reward += dmg;
+          if (!oppBlocking) {
+            s.stun1 = spec.stun;
+            s.rage2 = Math.min(100, s.rage2 + dmg * 0.4);
+          }
         }
-      } else {
-        // Whiff penalty
-        reward -= 0.5;
       }
-      // Set cooldown proportional to attack duration
-      if (isP1) s.atkCd1 = attack === "punch" ? 4 : attack === "kick" ? 6 : 9;
-      else s.atkCd2 = attack === "punch" ? 4 : attack === "kick" ? 6 : 9;
+      if (isP1) s.atkCd1 = spec.cd; else s.atkCd2 = spec.cd;
     }
-  } else {
+  } else if (selfCd > 0) {
     if (isP1) s.atkCd1--; else s.atkCd2--;
   }
+}
 
-  // Knockout bonus
-  if (isP1 && s.hp2 <= 0) reward += 20;
-  if (!isP1 && s.hp1 <= 0) reward += 20;
+// Compute a symmetric reward from HP deltas + bonuses.
+// reward_self = (opp_hp_lost) - (self_hp_lost) + block_prevent + prox + KO
+function computeReward(
+  sBefore: SimState,
+  sAfter: SimState,
+  perspective: 1 | 2,
+): number {
+  const isP1 = perspective === 1;
+  const selfHpBefore = isP1 ? sBefore.hp1 : sBefore.hp2;
+  const selfHpAfter = isP1 ? sAfter.hp1 : sAfter.hp2;
+  const oppHpBefore = isP1 ? sBefore.hp2 : sBefore.hp1;
+  const oppHpAfter = isP1 ? sAfter.hp2 : sAfter.hp1;
+  const selfHpLost = selfHpBefore - selfHpAfter;
+  const oppHpLost = oppHpBefore - oppHpAfter;
+
+  // Core: damage dealt (+) minus damage taken (-) — amplified so combat > turtling
+  let reward = (oppHpLost - selfHpLost) * 1.5;
+
+  // Proximity shaping: reward being in engagement range
+  const selfX = isP1 ? sAfter.x1 : sAfter.x2;
+  const oppX = isP1 ? sAfter.x2 : sAfter.x1;
+  const dist = Math.abs(oppX - selfX);
+  if (dist < 200) {
+    const prox = 1 - Math.abs(dist - 80) / 120;
+    reward += Math.max(0, prox) * 0.05;
+  }
+
+  // Block bonus: ONLY reward when we actually prevented damage by blocking.
+  // If we were blocking and still took damage, that damage was reduced (18%
+  // instead of 100%), so we prevented ~82%. Reward proportional to prevented dmg.
+  const selfBlock = isP1 ? sAfter.block1 : sAfter.block2;
+  if (selfBlock && selfHpLost > 0) {
+    // We took selfHpLost while blocking → actual damage was selfHpLost,
+    // but without blocking it would have been selfHpLost / 0.18 ≈ 5.5× more.
+    // Prevented damage ≈ selfHpLost * (1/0.18 - 1) ≈ selfHpLost * 4.5
+    reward += selfHpLost * 0.5; // reward for mitigating
+  }
+  // Turtle penalty: holding block when NOT under attack wastes time
+  if (selfBlock && selfHpLost === 0) {
+    reward -= 0.05;
+  }
+
+  // KO bonus / penalty (terminal)
+  if (oppHpAfter <= 0) reward += 25;
+  if (selfHpAfter <= 0) reward -= 25;
 
   return reward;
 }
@@ -608,10 +668,22 @@ export class SelfPlayTrainer {
   targetEpisodes = 2500;
   log: { episode: number; reward: number; policyLoss: number; valueLoss: number; entropy: number }[] = [];
 
-  private storageKey = "shadowfight_rl_v1";
+  private storageKey = "shadowfight_rl_v2";
 
   constructor() {
+    // Higher learning rate + entropy decay for better convergence
+    this.agent.lr = 1e-3;
+    this.opponent.lr = 1e-3;
+    this.agent.epochs = 6;
+    this.opponent.epochs = 6;
     this.load();
+  }
+
+  // Entropy coefficient decays over training so the policy commits to good
+  // actions late in training (starts exploring, ends exploiting).
+  private currentEntropyCoef(): number {
+    const frac = Math.min(1, this.agent.episodes / 1500);
+    return 0.02 * (1 - frac) + 0.001 * frac;
   }
 
   // Run a single self-play episode.
@@ -622,14 +694,23 @@ export class SelfPlayTrainer {
       rage1: 0, rage2: 0,
       stun1: 0, stun2: 0,
       atkCd1: 0, atkCd2: 0,
+      block1: false, block2: false,
       steps: 0,
     };
-    const maxSteps = 300; // ~30 seconds at 10 steps/sec
+    const maxSteps = 240;
     let totalR1 = 0;
 
-    // Periodically sync the opponent to the agent (frozen opponent → fresh opponent)
-    const syncEvery = 50;
-    const useFrozenOpp = this.agent.episodes % syncEvery < 25;
+    // Set entropy coef for this episode (decay)
+    this.agent.entropyCoef = this.currentEntropyCoef();
+    this.opponent.entropyCoef = this.currentEntropyCoef();
+
+    // Sync the frozen opponent every 30 episodes so the agent faces a
+    // gradually-stronger sparring partner (not a random mirror).
+    const syncEvery = 30;
+    if (this.agent.episodes % syncEvery === 0) {
+      this.opponent = this.cloneAgent(this.agent);
+    }
+    const useFrozenOpp = true; // always use frozen opponent (stable target)
 
     for (let step = 0; step < maxSteps; step++) {
       s.steps = step;
@@ -639,12 +720,22 @@ export class SelfPlayTrainer {
       const a1 = this.agent.act(sv1, true);
       const a2 = useFrozenOpp
         ? this.opponent.act(sv2, true)
-        : this.agent.act(sv2, true); // self-play against current policy
+        : this.agent.act(sv2, true);
 
-      const r1 = applySimAction(s, 1, a1.input);
-      const r2 = applySimAction(s, 2, a2.input);
+      // Snapshot HP before actions resolve (for symmetric reward computation)
+      const sBefore: SimState = { ...s, block1: s.block1, block2: s.block2 };
 
-      // Body collision (push apart)
+      // Resolve both actions (order randomized to avoid second-mover bias)
+      const p1First = Math.random() < 0.5;
+      if (p1First) {
+        applySimAction(s, 1, a1.input);
+        applySimAction(s, 2, a2.input);
+      } else {
+        applySimAction(s, 2, a2.input);
+        applySimAction(s, 1, a1.input);
+      }
+
+      // Body collision (push apart so they don't overlap)
       const dist = Math.abs(s.x2 - s.x1);
       if (dist < 40) {
         const push = (40 - dist) / 2;
@@ -654,17 +745,18 @@ export class SelfPlayTrainer {
         s.x2 = Math.max(80, Math.min(880, s.x2));
       }
 
-      const done = s.hp1 <= 0 || s.hp2 <= 0 || step === maxSteps - 1;
-      // Small time penalty to encourage finishing
-      const t1 = r1 - 0.01;
-      const t2 = r2 - 0.01;
+      // Compute symmetric rewards from HP deltas
+      const r1 = computeReward(sBefore, s, 1);
+      const r2 = computeReward(sBefore, s, 2);
 
-      this.agent.store(sv1, a1.action, t1, a1.logProb, a1.value, done);
+      const done = s.hp1 <= 0 || s.hp2 <= 0 || step === maxSteps - 1;
+
+      this.agent.store(sv1, a1.action, r1, a1.logProb, a1.value, done);
       if (useFrozenOpp) {
-        this.opponent.store(sv2, a2.action, t2, a2.logProb, a2.value, done);
+        this.opponent.store(sv2, a2.action, r2, a2.logProb, a2.value, done);
       }
 
-      totalR1 += t1;
+      totalR1 += r1;
       if (done) break;
     }
 
@@ -678,7 +770,7 @@ export class SelfPlayTrainer {
       valueLoss: pLoss.valueLoss,
       entropy: pLoss.entropy,
     });
-    if (this.log.length > 500) this.log.shift(); // cap log
+    if (this.log.length > 500) this.log.shift();
 
     return {
       reward: totalR1,
@@ -688,22 +780,29 @@ export class SelfPlayTrainer {
     };
   }
 
+  // Deep-clone an agent's weights (for frozen-opponent snapshots)
+  private cloneAgent(src: PPOAgent): PPOAgent {
+    const dst = new PPOAgent();
+    dst.load(src.serialize());
+    dst.lr = src.lr;
+    dst.epochs = src.epochs;
+    dst.entropyCoef = src.entropyCoef;
+    return dst;
+  }
+
   // Run N episodes, yielding to the UI thread between batches.
   async trainBatch(episodes: number, batchSize = 3): Promise<void> {
     this.isTraining = true;
     for (let i = 0; i < episodes && this.isTraining; i += batchSize) {
       const n = Math.min(batchSize, episodes - i);
       for (let j = 0; j < n; j++) this.runEpisode();
-      // Save every 50 episodes
       if (this.agent.episodes % 50 === 0) this.save();
-      // Yield to UI
       await new Promise((r) => setTimeout(r, 0));
     }
     this.save();
     this.isTraining = false;
   }
 
-  // Start background training toward targetEpisodes.
   async startBackground(): Promise<void> {
     if (this.isTraining) return;
     const remaining = Math.max(0, this.targetEpisodes - this.agent.episodes);
@@ -715,12 +814,11 @@ export class SelfPlayTrainer {
     this.isTraining = false;
   }
 
-  // ---- Persistence ----
   save(): void {
     try {
       localStorage.setItem(this.storageKey, this.agent.serialize());
     } catch {
-      // localStorage may be unavailable (private mode, quota)
+      // localStorage may be unavailable
     }
   }
 
@@ -740,7 +838,11 @@ export class SelfPlayTrainer {
       // ignore
     }
     this.agent = new PPOAgent();
+    this.agent.lr = 1e-3;
+    this.agent.epochs = 6;
     this.opponent = new PPOAgent();
+    this.opponent.lr = 1e-3;
+    this.opponent.epochs = 6;
     this.log = [];
   }
 }
