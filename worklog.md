@@ -393,3 +393,54 @@ Stage Summary:
 - Forearm taper end 6·wa + elbow joint 8·wa — smoother arm taper, no notch at elbow.
 - Feet now proportional ellipses (w*0.85 × w*0.45) instead of thin lines.
 - Both hands (back + front) and both feet render as solid filled silhouettes, verified by VLM.
+
+---
+Task ID: RL-1
+Agent: main
+Task: Implement the RL (PPO) code properly — the existing rl.ts had a critical backprop bug.
+
+Work Log:
+- Diagnosed the critical bug in the old rl.ts: backpropagation only updated the OUTPUT layer weights (pOut, vOut). The hidden layers (pL1, pL2, vL1, vL2) never received gradients, so the network could NOT learn features — only the final linear readout adjusted.
+- Rewrote rl.ts from scratch with proper full backpropagation:
+  - Added Layer interface with cached z (pre-activation), a (post-activation), gw (weight grads), gb (bias grads).
+  - fwdLayer() caches z and a for backprop.
+  - backLayer() applies ReLU mask using cached z, accumulates into gw/gb, returns gradient w.r.t. input (for chaining).
+  - backLayerLinear() same but no ReLU mask (for output layers).
+  - Full backprop chain: pOut → pL2 → pL1 (policy) and vOut → vL2 → vL1 (value).
+- Added PPO2 features:
+  - PPO clipped surrogate objective (ε=0.2) with proper gradient killing when clipped.
+  - Generalized Advantage Estimation (GAE-λ, γ=0.99, λ=0.95).
+  - Entropy bonus (β=0.01) with correct gradient dH/dz_j = -π_j(log π_j + H).
+  - Value function clipping (PPO2 style, ε=0.2).
+  - Multi-epoch updates (4 epochs per batch).
+  - Advantage normalization.
+  - He weight initialization for ReLU layers.
+- Added localStorage persistence:
+  - serialize() / load() for the full network + training stats.
+  - SelfPlayTrainer.save() / load() / clearSaved().
+  - Training auto-saves every 50 episodes.
+- Rewrote SelfPlayTrainer with a more faithful simulation:
+  - Uses real attack specs (punch 8dmg/66range, kick 15dmg/86range, roundhouse 16dmg/94range).
+  - Hitstun, attack cooldowns, body collision, knockout bonus, whiff penalty, engagement reward.
+  - Alternates between frozen-opponent and self-play modes (sync every 50 episodes).
+- Added RLController class — uses a trained policy as a game AI:
+  - getInput(self, opp) returns the agent's chosen InputState.
+  - Action hold (3 steps) prevents jittery 10-APM play.
+- Added background training: trainBatch() yields to UI thread between batches of 5 episodes.
+- Exported singleton rlTrainer instance.
+- Fixed value-clipping gradient bug: changed `>` to `>=` so the gradient flows on epoch 0 when newV == oldV (otherwise value network never updates on first epoch).
+- Verified with standalone test:
+  - All 6 layers (pL1, pL2, pOut, vL1, vL2, vOut) update after training. ✓
+  - 50-episode test: reward -18.1 → -16.6 (improving), value loss 0.85 → 0.59 (decreasing), policy loss decreasing.
+  - Policy distribution healthy: max prob 0.128 (no mode collapse, all 10 actions explored).
+- Lint clean, dev server compiles cleanly.
+
+Stage Summary:
+- rl.ts rewritten (~790 lines) with proper full backpropagation through all layers.
+- PPO2 complete: clipped surrogate, GAE, entropy bonus, value clipping, multi-epoch.
+- localStorage persistence — trained weights survive page refresh.
+- Self-play trainer with faithful simulation (real attack specs).
+- RLController for using trained policy as game AI.
+- Singleton rlTrainer exported for app-wide use.
+- Module is STANDALONE — not wired into the active game (per earlier user request). Can be activated by importing rlTrainer + RLController.
+- Verified: all layers update, training improves reward, no mode collapse.
