@@ -129,7 +129,8 @@ export default function ShadowFight() {
     let snapAcc = 0;
 
     const resize = () => {
-      const wrap = wrapRef.current!;
+      const wrap = wrapRef.current;
+      if (!wrap) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       // Fill the entire viewport (cover), letterboxing nothing.
       const vw = wrap.clientWidth;
@@ -149,32 +150,29 @@ export default function ShadowFight() {
       canvas.height = Math.round(h * dpr);
     };
     resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(wrapRef.current!);
 
     // initialize WebGL post-processing
     const fxCanvas = fxCanvasRef.current;
     if (fxCanvas && !postFXRef.current) {
       postFXRef.current = new PostFX(fxCanvas);
     }
-    const fxResize = () => {
-      if (!fxCanvas || !wrapRef.current) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const vw = wrapRef.current.clientWidth;
-      const vh = wrapRef.current.clientHeight;
-      const sxr = vw / VIRTUAL_W;
-      const syr = vh / VIRTUAL_H;
-      const scale = Math.max(sxr, syr);
-      const w = VIRTUAL_W * scale;
-      const h = VIRTUAL_H * scale;
-      fxCanvas.style.width = w + "px";
-      fxCanvas.style.height = h + "px";
-      fxCanvas.style.position = "absolute";
-      fxCanvas.style.left = (vw - w) / 2 + "px";
-      fxCanvas.style.top = (vh - h) / 2 + "px";
-      fxCanvas.style.pointerEvents = "none";
+
+    // resize both canvases together
+    const resizeAll = () => {
+      resize();
+      if (fxCanvas) {
+        fxCanvas.style.width = canvas.style.width;
+        fxCanvas.style.height = canvas.style.height;
+        fxCanvas.style.position = "absolute";
+        fxCanvas.style.left = canvas.style.left;
+        fxCanvas.style.top = canvas.style.top;
+        fxCanvas.style.pointerEvents = "none";
+        fxCanvas.width = canvas.width;
+        fxCanvas.height = canvas.height;
+      }
     };
-    fxResize();
+    resizeAll();
+    const ro = new ResizeObserver(resizeAll);
     ro.observe(wrapRef.current!);
 
     const loop = (now: number) => {

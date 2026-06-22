@@ -10,19 +10,32 @@ import { ACTIVE_WINDOW } from "./poses";
 export const VIRTUAL_W = 960;
 export const VIRTUAL_H = 540;
 
-// limb dimensions — Da Vinci / Vitruvian proportions (height ≈ 7.5 heads).
-// Total fighter ~190px tall: head 12.5 radius (25 diameter) × 7.6 ≈ 190.
-// Arm span ≈ height. Thigh ≈ shin ≈ 2 heads. Upper arm ≈ forearm.
-const HEAD_R = 12.5;
-const NECK = 9;
-const TORSO = 46; // chest-to-hip (≈ 2 heads)
-const UARM = 27; // upper arm (≈ 1.1 heads)
-const FARM = 25; // forearm (≈ 1 head)
-const THIGH = 40; // thigh (≈ 1.6 heads)
-const SHIN = 38; // shin (≈ 1.55 heads)
-// standing height ≈ TORSO + NECK + 2*HEAD_R + THIGH + SHIN ≈ 190
+// limb dimensions — base Da Vinci proportions, scaled per body type
+const BASE = { headR: 12.5, neck: 9, torso: 46, uarm: 27, farm: 25, thigh: 40, shin: 38 };
 
-// polar: angle 0 = straight down (+y), positive rotates toward +x (front).
+interface BodyProps {
+  headR: number; neck: number; torso: number;
+  uarm: number; farm: number; thigh: number; shin: number;
+  wTorso: number; wArm: number; wLeg: number; extraLean: number;
+}
+
+function getBodyProps(bodyType: string): BodyProps {
+  const b = BASE;
+  switch (bodyType) {
+    case "bulky":
+      return { ...b, headR: b.headR * 1.15, torso: b.torso * 0.9, thigh: b.thigh * 0.85, shin: b.shin * 0.85,
+        wTorso: 1.35, wArm: 1.3, wLeg: 1.25, extraLean: 0.05 };
+    case "tall":
+      return { ...b, headR: b.headR * 0.95, torso: b.torso * 1.12, thigh: b.thigh * 1.2, shin: b.shin * 1.18,
+        uarm: b.uarm * 1.1, farm: b.farm * 1.1, wTorso: 0.85, wArm: 0.85, wLeg: 0.9, extraLean: 0 };
+    case "hunched":
+      return { ...b, torso: b.torso * 0.88, thigh: b.thigh * 0.92, shin: b.shin * 0.9,
+        wTorso: 1.1, wArm: 0.95, wLeg: 0.95, extraLean: 0.2 };
+    default:
+      return { ...b, wTorso: 1.0, wArm: 1.0, wLeg: 1.0, extraLean: 0 };
+  }
+}
+
 function polar(len: number, a: number): [number, number] {
   return [len * Math.sin(a), len * Math.cos(a)];
 }
@@ -41,31 +54,34 @@ interface Joints {
   bFoot: [number, number];
   fKnee: [number, number];
   fFoot: [number, number];
+  props: BodyProps;
 }
 
 function computeJoints(f: Fighter): Joints {
   const p = f.pose();
-  // hip sits one leg-length above the ground (feet touch ground when standing)
-  const LEG = THIGH + SHIN;
+  const props = getBodyProps(f.bodyType);
+  const lean = p.torsoLean + props.extraLean;
+  const LEG = props.thigh + props.shin;
   const hipY = f.y - LEG + p.hipDrop;
   const hip: [number, number] = [0, hipY];
-  const chest = [hip[0] + polar(TORSO, Math.PI - p.torsoLean)[0], hip[1] + polar(TORSO, Math.PI - p.torsoLean)[1]];
-  const headAng = Math.PI - p.torsoLean - p.headTilt;
+  const chest = [hip[0] + polar(props.torso, Math.PI - lean)[0], hip[1] + polar(props.torso, Math.PI - lean)[1]];
+  const headAng = Math.PI - lean - p.headTilt;
   const head = [
-    chest[0] + polar(NECK + HEAD_R, headAng)[0],
-    chest[1] + polar(NECK + HEAD_R, headAng)[1],
+    chest[0] + polar(props.neck + props.headR, headAng)[0],
+    chest[1] + polar(props.neck + props.headR, headAng)[1],
   ];
-  const bShoulder: [number, number] = [chest[0] - 6, chest[1] + 2];
-  const fShoulder: [number, number] = [chest[0] + 6, chest[1] + 2];
-  const bElbow = [bShoulder[0] + polar(UARM, p.bArm)[0], bShoulder[1] + polar(UARM, p.bArm)[1]];
-  const bHand = [bElbow[0] + polar(FARM, p.bFore)[0], bElbow[1] + polar(FARM, p.bFore)[1]];
-  const fElbow = [fShoulder[0] + polar(UARM, p.fArm)[0], fShoulder[1] + polar(UARM, p.fArm)[1]];
-  const fHand = [fElbow[0] + polar(FARM, p.fFore)[0], fElbow[1] + polar(FARM, p.fFore)[1]];
-  const bKnee = [hip[0] + polar(THIGH, p.bThigh)[0], hip[1] + polar(THIGH, p.bThigh)[1]];
-  const bFoot = [bKnee[0] + polar(SHIN, p.bShin)[0], bKnee[1] + polar(SHIN, p.bShin)[1]];
-  const fKnee = [hip[0] + polar(THIGH, p.fThigh)[0], hip[1] + polar(THIGH, p.fThigh)[1]];
-  const fFoot = [fKnee[0] + polar(SHIN, p.fShin)[0], fKnee[1] + polar(SHIN, p.fShin)[1]];
-  return { hip, chest, head, bShoulder, fShoulder, bElbow, bHand, fElbow, fHand, bKnee, bFoot, fKnee, fFoot };
+  const sw = 6 * props.wTorso;
+  const bShoulder: [number, number] = [chest[0] - sw, chest[1] + 2];
+  const fShoulder: [number, number] = [chest[0] + sw, chest[1] + 2];
+  const bElbow = [bShoulder[0] + polar(props.uarm, p.bArm)[0], bShoulder[1] + polar(props.uarm, p.bArm)[1]];
+  const bHand = [bElbow[0] + polar(props.farm, p.bFore)[0], bElbow[1] + polar(props.farm, p.bFore)[1]];
+  const fElbow = [fShoulder[0] + polar(props.uarm, p.fArm)[0], fShoulder[1] + polar(props.uarm, p.fArm)[1]];
+  const fHand = [fElbow[0] + polar(props.farm, p.fFore)[0], fElbow[1] + polar(props.farm, p.fFore)[1]];
+  const bKnee = [hip[0] + polar(props.thigh, p.bThigh)[0], hip[1] + polar(props.thigh, p.bThigh)[1]];
+  const bFoot = [bKnee[0] + polar(props.shin, p.bShin)[0], bKnee[1] + polar(props.shin, p.bShin)[1]];
+  const fKnee = [hip[0] + polar(props.thigh, p.fThigh)[0], hip[1] + polar(props.thigh, p.fThigh)[1]];
+  const fFoot = [fKnee[0] + polar(props.shin, p.fShin)[0], fKnee[1] + polar(props.shin, p.fShin)[1]];
+  return { hip, chest, head, bShoulder, fShoulder, bElbow, bHand, fElbow, fHand, bKnee, bFoot, fKnee, fFoot, props };
 }
 
 export function render(ctx: CanvasRenderingContext2D, eng: GameEngine) {
@@ -604,22 +620,29 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
     ctx.fill();
   };
 
-  // back leg — thigh tapers hip→knee, shin tapers knee→ankle
-  taperedLimb(j.hip, j.bKnee, 16, 13);
-  taperedLimb(j.bKnee, j.bFoot, 13, 9);
-  foot(ctx, j.bFoot, 10);
-  // back arm — upper arm tapers shoulder→elbow, forearm tapers elbow→wrist
-  taperedLimb(j.bShoulder, j.bElbow, 11, 8);
-  taperedLimb(j.bElbow, j.bHand, 8, 5);
+  // body-type-scaled widths
+  const wt = j.props.wTorso, wa = j.props.wArm, wl = j.props.wLeg;
+  const hr = j.props.headR;
+
+  // back leg
+  taperedLimb(j.hip, j.bKnee, 16 * wl, 13 * wl);
+  taperedLimb(j.bKnee, j.bFoot, 13 * wl, 9 * wl);
+  joint(j.bKnee, 13 * wl);
+  foot(ctx, j.bFoot, 10 * wl);
+  // back arm
+  taperedLimb(j.bShoulder, j.bElbow, 11 * wa, 8 * wa);
+  taperedLimb(j.bElbow, j.bHand, 8 * wa, 5 * wa);
   joint(j.bElbow, 4);
-  // torso — tapers from hips (wide) to chest (narrower)
-  taperedLimb(j.hip, j.chest, 20, 14);
+  // torso
+  taperedLimb(j.hip, j.chest, 20 * wt, 14 * wt);
+  joint(j.hip, 20 * wt);
+  joint(j.chest, 14 * wt);
   // neck
-  taperedLimb(j.chest, [j.head[0], j.head[1] + HEAD_R - 2], 9, 7);
+  taperedLimb(j.chest, [j.head[0], j.head[1] + hr - 2], 9, 7);
   // head
   ctx.fillStyle = fill;
   ctx.beginPath();
-  ctx.arc(j.head[0], j.head[1], HEAD_R, 0, Math.PI * 2);
+  ctx.arc(j.head[0], j.head[1], hr, 0, Math.PI * 2);
   ctx.fill();
 
   // motion blur on attacking limb during active frames
@@ -631,17 +654,17 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   if (inActive && (atk === "kick" || atk === "roundhouse")) {
     motionFan(ctx, j.fKnee, j.fFoot, 12, rim);
   }
-  taperedLimb(j.hip, j.fKnee, 16, 13);
-  taperedLimb(j.fKnee, j.fFoot, 13, 9);
-  joint(j.fKnee, 4.5);
-  foot(ctx, j.fFoot, 10);
+  taperedLimb(j.hip, j.fKnee, 16 * wl, 13 * wl);
+  taperedLimb(j.fKnee, j.fFoot, 13 * wl, 9 * wl);
+  joint(j.fKnee, 13 * wl);
+  foot(ctx, j.fFoot, 10 * wl);
 
   // front arm
   if (inActive && atk === "punch") {
     motionFan(ctx, j.fElbow, j.fHand, 8, rim);
   }
-  taperedLimb(j.fShoulder, j.fElbow, 11, 8);
-  taperedLimb(j.fElbow, j.fHand, 8, 5);
+  taperedLimb(j.fShoulder, j.fElbow, 11 * wa, 8 * wa);
+  taperedLimb(j.fElbow, j.fHand, 8 * wa, 5 * wa);
   joint(j.fElbow, 4);
   joint(j.fHand, 3);
 
@@ -683,7 +706,7 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   rimLimb(j.hip, j.fKnee);
   rimLimb(j.fKnee, j.fFoot);
   ctx.beginPath();
-  ctx.arc(j.head[0] - 1, j.head[1] - 1, HEAD_R - 1.5, Math.PI * 1.05, Math.PI * 1.95);
+  ctx.arc(j.head[0] - 1, j.head[1] - 1, j.props.headR - 1.5, Math.PI * 1.05, Math.PI * 1.95);
   ctx.stroke();
   ctx.globalAlpha = 1;
 

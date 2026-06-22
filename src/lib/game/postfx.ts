@@ -166,8 +166,9 @@ export class PostFX {
     }
     gl.viewport(0, 0, w, h);
 
-    // upload source canvas as texture
+    // upload source canvas as texture (flip Y so it's not upside-down)
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
 
     // set uniforms
