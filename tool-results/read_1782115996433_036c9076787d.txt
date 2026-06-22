@@ -1,0 +1,853 @@
+     1→// Rendering: themed arena backgrounds, articulated shadow fighters with
+     2→// ground shadows / motion blur / blade glints, particles, floating text.
+     3→// Draws in a virtual 960x540 space; the component sets the transform to fit.
+     4→
+     5→import { Fighter, GROUND_Y, STAGE_LEFT, STAGE_RIGHT } from "./fighter";
+     6→import type { GameEngine } from "./engine";
+     7→import type { BackgroundId } from "./types";
+     8→import { ACTIVE_WINDOW } from "./poses";
+     9→
+    10→export const VIRTUAL_W = 960;
+    11→export const VIRTUAL_H = 540;
+    12→
+    13→// limb dimensions — base Da Vinci proportions, scaled per body type
+    14→const BASE = { headR: 12.5, neck: 9, torso: 46, uarm: 27, farm: 25, thigh: 40, shin: 38 };
+    15→
+    16→interface BodyProps {
+    17→  headR: number; neck: number; torso: number;
+    18→  uarm: number; farm: number; thigh: number; shin: number;
+    19→  wTorso: number; wArm: number; wLeg: number; extraLean: number;
+    20→}
+    21→
+    22→function getBodyProps(bodyType: string): BodyProps {
+    23→  const b = BASE;
+    24→  switch (bodyType) {
+    25→    case "bulky":
+    26→      return { ...b, headR: b.headR * 1.15, torso: b.torso * 0.9, thigh: b.thigh * 0.85, shin: b.shin * 0.85,
+    27→        wTorso: 1.35, wArm: 1.3, wLeg: 1.25, extraLean: 0.05 };
+    28→    case "tall":
+    29→      return { ...b, headR: b.headR * 0.95, torso: b.torso * 1.12, thigh: b.thigh * 1.2, shin: b.shin * 1.18,
+    30→        uarm: b.uarm * 1.1, farm: b.farm * 1.1, wTorso: 0.85, wArm: 0.85, wLeg: 0.9, extraLean: 0 };
+    31→    case "hunched":
+    32→      return { ...b, torso: b.torso * 0.88, thigh: b.thigh * 0.92, shin: b.shin * 0.9,
+    33→        wTorso: 1.1, wArm: 0.95, wLeg: 0.95, extraLean: 0.2 };
+    34→    default:
+    35→      return { ...b, wTorso: 1.0, wArm: 1.0, wLeg: 1.0, extraLean: 0 };
+    36→  }
+    37→}
+    38→
+    39→function polar(len: number, a: number): [number, number] {
+    40→  return [len * Math.sin(a), len * Math.cos(a)];
+    41→}
+    42→
+    43→interface Joints {
+    44→  hip: [number, number];
+    45→  chest: [number, number];
+    46→  head: [number, number];
+    47→  bShoulder: [number, number];
+    48→  fShoulder: [number, number];
+    49→  bElbow: [number, number];
+    50→  bHand: [number, number];
+    51→  fElbow: [number, number];
+    52→  fHand: [number, number];
+    53→  bKnee: [number, number];
+    54→  bFoot: [number, number];
+    55→  fKnee: [number, number];
+    56→  fFoot: [number, number];
+    57→  props: BodyProps;
+    58→}
+    59→
+    60→function computeJoints(f: Fighter): Joints {
+    61→  const p = f.pose();
+    62→  const props = getBodyProps(f.bodyType);
+    63→  const lean = p.torsoLean + props.extraLean;
+    64→  const LEG = props.thigh + props.shin;
+    65→  const hipY = f.y - LEG + p.hipDrop;
+    66→  const hip: [number, number] = [0, hipY];
+    67→  const chest = [hip[0] + polar(props.torso, Math.PI - lean)[0], hip[1] + polar(props.torso, Math.PI - lean)[1]];
+    68→  const headAng = Math.PI - lean - p.headTilt;
+    69→  const head = [
+    70→    chest[0] + polar(props.neck + props.headR, headAng)[0],
+    71→    chest[1] + polar(props.neck + props.headR, headAng)[1],
+    72→  ];
+    73→  const sw = 6 * props.wTorso;
+    74→  const bShoulder: [number, number] = [chest[0] - sw, chest[1] + 2];
+    75→  const fShoulder: [number, number] = [chest[0] + sw, chest[1] + 2];
+    76→  const bElbow = [bShoulder[0] + polar(props.uarm, p.bArm)[0], bShoulder[1] + polar(props.uarm, p.bArm)[1]];
+    77→  const bHand = [bElbow[0] + polar(props.farm, p.bFore)[0], bElbow[1] + polar(props.farm, p.bFore)[1]];
+    78→  const fElbow = [fShoulder[0] + polar(props.uarm, p.fArm)[0], fShoulder[1] + polar(props.uarm, p.fArm)[1]];
+    79→  const fHand = [fElbow[0] + polar(props.farm, p.fFore)[0], fElbow[1] + polar(props.farm, p.fFore)[1]];
+    80→  const bKnee = [hip[0] + polar(props.thigh, p.bThigh)[0], hip[1] + polar(props.thigh, p.bThigh)[1]];
+    81→  const bFoot = [bKnee[0] + polar(props.shin, p.bShin)[0], bKnee[1] + polar(props.shin, p.bShin)[1]];
+    82→  const fKnee = [hip[0] + polar(props.thigh, p.fThigh)[0], hip[1] + polar(props.thigh, p.fThigh)[1]];
+    83→  const fFoot = [fKnee[0] + polar(props.shin, p.fShin)[0], fKnee[1] + polar(props.shin, p.fShin)[1]];
+    84→  return { hip, chest, head, bShoulder, fShoulder, bElbow, bHand, fElbow, fHand, bKnee, bFoot, fKnee, fFoot, props };
+    85→}
+    86→
+    87→export function render(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+    88→  const bg: BackgroundId = eng.scene;
+    89→  drawScene(ctx, eng, bg);
+    90→
+    91→  // ground contact shadows (drawn on the ground, behind fighters)
+    92→  drawGroundShadow(ctx, eng.player);
+    93→  drawGroundShadow(ctx, eng.enemy);
+    94→
+    95→  // energy auras behind fighters (attacking / low HP glow)
+    96→  drawAura(ctx, eng.player);
+    97→  drawAura(ctx, eng.enemy);
+    98→
+    99→  // draw fighters back-to-front
+   100→  const order = [eng.player, eng.enemy].sort((a, b) => a.x - b.x);
+   101→  for (const f of order) drawFighter(ctx, f);
+   102→
+   103→  drawShockwaves(ctx, eng);
+   104→  drawParticles(ctx, eng);
+   105→  drawFloatingText(ctx, eng);
+   106→  drawVignette(ctx);
+   107→}
+   108→
+   109→// ---------------------------------------------------------------- backgrounds
+   110→
+   111→function drawScene(ctx: CanvasRenderingContext2D, eng: GameEngine, bg: BackgroundId) {
+   112→  switch (bg) {
+   113→    case "sunset":
+   114→      drawSunset(ctx, eng);
+   115→      break;
+   116→    case "desert":
+   117→      drawDesert(ctx, eng);
+   118→      break;
+   119→    case "temple":
+   120→      drawTemple(ctx, eng);
+   121→      break;
+   122→    case "bamboo":
+   123→      drawBamboo(ctx, eng);
+   124→      break;
+   125→    case "moon":
+   126→      drawMoon(ctx, eng);
+   127→      break;
+   128→    case "volcano":
+   129→      drawVolcano(ctx, eng);
+   130→      break;
+   131→    case "snow":
+   132→      drawSnow(ctx, eng);
+   133→      break;
+   134→    default:
+   135→      drawSunset(ctx, eng);
+   136→  }
+   137→}
+   138→
+   139→// shared ground drawer with theme colors
+   140→function drawGround(ctx: CanvasRenderingContext2D, top: string, bottom: string, horizon: string) {
+   141→  const g = ctx.createLinearGradient(0, GROUND_Y, 0, VIRTUAL_H);
+   142→  g.addColorStop(0, top);
+   143→  g.addColorStop(1, bottom);
+   144→  ctx.fillStyle = g;
+   145→  ctx.fillRect(0, GROUND_Y, VIRTUAL_W, VIRTUAL_H - GROUND_Y);
+   146→
+   147→  ctx.strokeStyle = horizon;
+   148→  ctx.lineWidth = 2;
+   149→  ctx.beginPath();
+   150→  ctx.moveTo(0, GROUND_Y);
+   151→  ctx.lineTo(VIRTUAL_W, GROUND_Y);
+   152→  ctx.stroke();
+   153→
+   154→  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+   155→  ctx.lineWidth = 1;
+   156→  for (let x = STAGE_LEFT; x <= STAGE_RIGHT; x += 44) {
+   157→    ctx.beginPath();
+   158→    ctx.moveTo(x, GROUND_Y + 2);
+   159→    ctx.lineTo(x, GROUND_Y + 9);
+   160→    ctx.stroke();
+   161→  }
+   162→}
+   163→
+   164→// silhouette ridge from [x, h] points
+   165→function ridge(ctx: CanvasRenderingContext2D, pts: number[], color: string, baseY = GROUND_Y) {
+   166→  ctx.fillStyle = color;
+   167→  ctx.beginPath();
+   168→  ctx.moveTo(0, baseY);
+   169→  for (let i = 0; i < pts.length; i += 2) ctx.lineTo(pts[i], baseY - pts[i + 1]);
+   170→  ctx.lineTo(VIRTUAL_W, baseY);
+   171→  ctx.closePath();
+   172→  ctx.fill();
+   173→}
+   174→
+   175→function drawSunset(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   176→  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+   177→  sky.addColorStop(0, "#1a1030");
+   178→  sky.addColorStop(0.4, "#3b1d4f");
+   179→  sky.addColorStop(0.7, "#8a2f4a");
+   180→  sky.addColorStop(0.88, "#e0673a");
+   181→  sky.addColorStop(1, "#f5b942");
+   182→  ctx.fillStyle = sky;
+   183→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   184→
+   185→  const sunX = VIRTUAL_W * 0.5;
+   186→  const sunY = GROUND_Y - 36;
+   187→  const glow = ctx.createRadialGradient(sunX, sunY, 8, sunX, sunY, 230);
+   188→  glow.addColorStop(0, "rgba(255,236,170,0.95)");
+   189→  glow.addColorStop(0.3, "rgba(255,180,90,0.5)");
+   190→  glow.addColorStop(1, "rgba(255,120,60,0)");
+   191→  ctx.fillStyle = glow;
+   192→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   193→  ctx.fillStyle = "rgba(255,247,214,0.98)";
+   194→  ctx.beginPath();
+   195→  ctx.arc(sunX, sunY, 48, 0, Math.PI * 2);
+   196→  ctx.fill();
+   197→
+   198→  ridge(ctx, [0, 70, 150, 110, 300, 70, 460, 120, 620, 80, 780, 120, 960, 90], "rgba(40,20,50,0.5)");
+   199→  ridge(ctx, [0, 40, 120, 80, 260, 45, 420, 90, 560, 50, 720, 95, 880, 55, 960, 70], "rgba(18,9,26,0.8)");
+   200→  embers(ctx, eng, "rgba(255,200,120,", 24);
+   201→  drawGround(ctx, "#0a0608", "#000", "rgba(255,160,90,0.8)");
+   202→}
+   203→
+   204→function drawDesert(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   205→  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+   206→  sky.addColorStop(0, "#3a2410");
+   207→  sky.addColorStop(0.45, "#7a4a1c");
+   208→  sky.addColorStop(0.8, "#d98a3a");
+   209→  sky.addColorStop(1, "#f2c878");
+   210→  ctx.fillStyle = sky;
+   211→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   212→
+   213→  // low sun
+   214→  const sx = VIRTUAL_W * 0.62;
+   215→  const sy = GROUND_Y - 60;
+   216→  const glow = ctx.createRadialGradient(sx, sy, 8, sx, sy, 240);
+   217→  glow.addColorStop(0, "rgba(255,240,200,0.9)");
+   218→  glow.addColorStop(0.4, "rgba(255,180,80,0.4)");
+   219→  glow.addColorStop(1, "rgba(255,140,40,0)");
+   220→  ctx.fillStyle = glow;
+   221→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   222→  ctx.fillStyle = "rgba(255,235,180,0.95)";
+   223→  ctx.beginPath();
+   224→  ctx.arc(sx, sy, 40, 0, Math.PI * 2);
+   225→  ctx.fill();
+   226→
+   227→  // distant ruined pillars
+   228→  ctx.fillStyle = "rgba(60,38,20,0.5)";
+   229→  for (const px of [120, 250, 720, 850]) {
+   230→    ctx.fillRect(px, GROUND_Y - 120, 16, 120);
+   231→    ctx.fillRect(px - 4, GROUND_Y - 128, 24, 8);
+   232→  }
+   233→  // dunes
+   234→  ridge(ctx, [0, 30, 200, 70, 420, 30, 640, 80, 860, 40, 960, 60], "rgba(80,50,24,0.55)");
+   235→  ridge(ctx, [0, 20, 160, 50, 380, 24, 600, 60, 820, 30, 960, 44], "rgba(40,24,12,0.8)");
+   236→  embers(ctx, eng, "rgba(255,220,150,", 16, "sand");
+   237→  drawGround(ctx, "#1c1206", "#000", "rgba(255,170,80,0.7)");
+   238→}
+   239→
+   240→function drawTemple(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   241→  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+   242→  sky.addColorStop(0, "#1a1430");
+   243→  sky.addColorStop(0.5, "#3a2a55");
+   244→  sky.addColorStop(0.85, "#6b3f6a");
+   245→  sky.addColorStop(1, "#a04a64");
+   246→  ctx.fillStyle = sky;
+   247→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   248→
+   249→  // hanging lanterns glow
+   250→  for (const lx of [180, 480, 780]) {
+   251→    const ly = GROUND_Y - 230 + Math.sin(eng.time * 0.8 + lx) * 4;
+   252→    const g = ctx.createRadialGradient(lx, ly, 4, lx, ly, 60);
+   253→    g.addColorStop(0, "rgba(255,180,80,0.85)");
+   254→    g.addColorStop(1, "rgba(255,140,40,0)");
+   255→    ctx.fillStyle = g;
+   256→    ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   257→    ctx.fillStyle = "rgba(255,210,140,0.95)";
+   258→    ctx.beginPath();
+   259→    ctx.arc(lx, ly, 6, 0, Math.PI * 2);
+   260→    ctx.fill();
+   261→  }
+   262→
+   263→  // pagoda silhouettes
+   264→  ctx.fillStyle = "rgba(20,12,28,0.85)";
+   265→  pagoda(ctx, 130, GROUND_Y, 70);
+   266→  pagoda(ctx, 820, GROUND_Y, 80);
+   267→  ridge(ctx, [0, 30, 300, 60, 600, 30, 960, 55], "rgba(12,8,20,0.9)");
+   268→  petals(ctx, eng, "rgba(255,170,200,");
+   269→  drawGround(ctx, "#0c0814", "#000", "rgba(180,120,200,0.5)");
+   270→}
+   271→
+   272→function pagoda(ctx: CanvasRenderingContext2D, x: number, baseY: number, h: number) {
+   273→  ctx.save();
+   274→  ctx.translate(x, baseY);
+   275→  // tiers
+   276→  const tiers = 3;
+   277→  for (let i = 0; i < tiers; i++) {
+   278→    const ty = -h + (i * h) / tiers;
+   279→    const tw = 26 - i * 5;
+   280→    ctx.fillRect(-tw, ty, tw * 2, h / tiers - 4);
+   281→    // roof
+   282→    ctx.beginPath();
+   283→    ctx.moveTo(-tw - 8, ty);
+   284→    ctx.lineTo(0, ty - 14);
+   285→    ctx.lineTo(tw + 8, ty);
+   286→    ctx.closePath();
+   287→    ctx.fill();
+   288→  }
+   289→  ctx.restore();
+   290→}
+   291→
+   292→function drawBamboo(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   293→  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+   294→  sky.addColorStop(0, "#0c1a14");
+   295→  sky.addColorStop(0.5, "#143026");
+   296→  sky.addColorStop(0.85, "#1f4a36");
+   297→  sky.addColorStop(1, "#3a6b4a");
+   298→  ctx.fillStyle = sky;
+   299→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   300→
+   301→  // soft mist
+   302→  const mist = ctx.createLinearGradient(0, GROUND_Y - 160, 0, GROUND_Y);
+   303→  mist.addColorStop(0, "rgba(120,180,150,0)");
+   304→  mist.addColorStop(1, "rgba(120,180,150,0.18)");
+   305→  ctx.fillStyle = mist;
+   306→  ctx.fillRect(0, GROUND_Y - 160, VIRTUAL_W, 160);
+   307→
+   308→  // bamboo stalks (foreground)
+   309→  ctx.strokeStyle = "rgba(8,18,12,0.92)";
+   310→  ctx.lineCap = "round";
+   311→  for (const bx of [60, 130, 880, 920]) {
+   312→    ctx.lineWidth = 9;
+   313→    ctx.beginPath();
+   314→    ctx.moveTo(bx, GROUND_Y);
+   315→    ctx.lineTo(bx + Math.sin(bx) * 8, GROUND_Y - 320);
+   316→    ctx.stroke();
+   317→    // nodes
+   318→    for (let n = 1; n < 7; n++) {
+   319→      ctx.lineWidth = 11;
+   320→      ctx.beginPath();
+   321→      ctx.moveTo(bx - 6, GROUND_Y - n * 44);
+   322→      ctx.lineTo(bx + 6, GROUND_Y - n * 44);
+   323→      ctx.stroke();
+   324→    }
+   325→  }
+   326→  // distant ridges
+   327→  ridge(ctx, [0, 40, 220, 90, 460, 50, 700, 100, 960, 60], "rgba(10,28,20,0.7)");
+   328→  fireflies(ctx, eng);
+   329→  drawGround(ctx, "#08120c", "#000", "rgba(120,200,150,0.5)");
+   330→}
+   331→
+   332→function drawMoon(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   333→  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+   334→  sky.addColorStop(0, "#060814");
+   335→  sky.addColorStop(0.5, "#0c1430");
+   336→  sky.addColorStop(0.85, "#1a2a50");
+   337→  sky.addColorStop(1, "#2a3a66");
+   338→  ctx.fillStyle = sky;
+   339→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   340→
+   341→  // stars
+   342→  ctx.fillStyle = "rgba(255,255,255,0.7)";
+   343→  for (let i = 0; i < 60; i++) {
+   344→    const sx = (i * 71.3) % VIRTUAL_W;
+   345→    const sy = (i * 53.7) % (GROUND_Y - 120);
+   346→    const tw = 0.4 + 0.6 * Math.abs(Math.sin(eng.time * 2 + i));
+   347→    ctx.globalAlpha = tw;
+   348→    ctx.fillRect(sx, sy, 1.5, 1.5);
+   349→  }
+   350→  ctx.globalAlpha = 1;
+   351→
+   352→  // moon
+   353→  const mx = VIRTUAL_W * 0.74;
+   354→  const my = 120;
+   355→  const mg = ctx.createRadialGradient(mx, my, 10, mx, my, 120);
+   356→  mg.addColorStop(0, "rgba(220,230,255,0.9)");
+   357→  mg.addColorStop(0.4, "rgba(180,200,240,0.35)");
+   358→  mg.addColorStop(1, "rgba(140,160,220,0)");
+   359→  ctx.fillStyle = mg;
+   360→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   361→  ctx.fillStyle = "rgba(235,240,255,0.97)";
+   362→  ctx.beginPath();
+   363→  ctx.arc(mx, my, 42, 0, Math.PI * 2);
+   364→  ctx.fill();
+   365→  ctx.fillStyle = "rgba(180,195,230,0.5)";
+   366→  ctx.beginPath();
+   367→  ctx.arc(mx - 12, my - 6, 7, 0, Math.PI * 2);
+   368→  ctx.arc(mx + 10, my + 12, 5, 0, Math.PI * 2);
+   369→  ctx.fill();
+   370→
+   371→  ridge(ctx, [0, 60, 200, 120, 380, 70, 560, 140, 760, 80, 960, 110], "rgba(10,16,36,0.6)");
+   372→  ridge(ctx, [0, 36, 180, 80, 360, 44, 540, 90, 740, 50, 960, 70], "rgba(6,10,24,0.85)");
+   373→  petals(ctx, eng, "rgba(230,210,255,");
+   374→  drawGround(ctx, "#05080f", "#000", "rgba(150,170,230,0.5)");
+   375→}
+   376→
+   377→function drawVolcano(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   378→  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+   379→  sky.addColorStop(0, "#1a0606");
+   380→  sky.addColorStop(0.4, "#3a0d0a");
+   381→  sky.addColorStop(0.8, "#7a1e10");
+   382→  sky.addColorStop(1, "#c0421a");
+   383→  ctx.fillStyle = sky;
+   384→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   385→
+   386→  // lava glow at horizon
+   387→  const lava = ctx.createLinearGradient(0, GROUND_Y - 120, 0, GROUND_Y);
+   388→  lava.addColorStop(0, "rgba(255,80,20,0)");
+   389→  lava.addColorStop(1, "rgba(255,120,30,0.6)");
+   390→  ctx.fillStyle = lava;
+   391→  ctx.fillRect(0, GROUND_Y - 120, VIRTUAL_W, 120);
+   392→
+   393→  // jagged peaks
+   394→  ctx.fillStyle = "rgba(20,6,6,0.8)";
+   395→  ctx.beginPath();
+   396→  ctx.moveTo(0, GROUND_Y);
+   397→  const pts = [0, 60, 120, 180, 240, 90, 360, 200, 460, 110, 580, 220, 700, 120, 820, 180, 960, 90];
+   398→  for (let i = 0; i < pts.length; i += 2) ctx.lineTo(pts[i], GROUND_Y - pts[i + 1]);
+   399→  ctx.lineTo(VIRTUAL_W, GROUND_Y);
+   400→  ctx.closePath();
+   401→  ctx.fill();
+   402→  // crater glow
+   403→  for (const cx of [360, 580]) {
+   404→    const g = ctx.createRadialGradient(cx, GROUND_Y - 200, 4, cx, GROUND_Y - 200, 70);
+   405→    g.addColorStop(0, "rgba(255,140,40,0.8)");
+   406→    g.addColorStop(1, "rgba(255,80,20,0)");
+   407→    ctx.fillStyle = g;
+   408→    ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   409→  }
+   410→  embers(ctx, eng, "rgba(255,120,40,", 34, "ember");
+   411→  drawGround(ctx, "#160404", "#000", "rgba(255,90,30,0.85)");
+   412→}
+   413→
+   414→function drawSnow(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   415→  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+   416→  sky.addColorStop(0, "#0a1422");
+   417→  sky.addColorStop(0.5, "#1c2c44");
+   418→  sky.addColorStop(0.85, "#3a4a66");
+   419→  sky.addColorStop(1, "#6a7a96");
+   420→  ctx.fillStyle = sky;
+   421→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   422→
+   423→  // pale sun
+   424→  const sx = VIRTUAL_W * 0.3;
+   425→  const sy = 110;
+   426→  const g = ctx.createRadialGradient(sx, sy, 6, sx, sy, 130);
+   427→  g.addColorStop(0, "rgba(220,235,255,0.7)");
+   428→  g.addColorStop(1, "rgba(200,220,255,0)");
+   429→  ctx.fillStyle = g;
+   430→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   431→
+   432→  // pine silhouettes
+   433→  ctx.fillStyle = "rgba(10,18,30,0.85)";
+   434→  for (const px of [90, 230, 720, 870]) {
+   435→    pine(ctx, px, GROUND_Y, 90 + (px % 3) * 16);
+   436→  }
+   437→  ridge(ctx, [0, 50, 200, 110, 420, 60, 640, 130, 860, 70, 960, 90], "rgba(14,24,40,0.7)");
+   438→  snow(ctx, eng);
+   439→  drawGround(ctx, "#101a2a", "#000", "rgba(200,220,255,0.6)");
+   440→}
+   441→
+   442→function pine(ctx: CanvasRenderingContext2D, x: number, baseY: number, h: number) {
+   443→  ctx.save();
+   444→  ctx.translate(x, baseY);
+   445→  ctx.beginPath();
+   446→  for (let i = 0; i < 4; i++) {
+   447→    const ty = -h + (i * h) / 4;
+   448→    const tw = 22 - i * 4;
+   449→    ctx.moveTo(-tw, ty);
+   450→    ctx.lineTo(0, ty - h / 4);
+   451→    ctx.lineTo(tw, ty);
+   452→    ctx.closePath();
+   453→  }
+   454→  ctx.fill();
+   455→  ctx.fillRect(-3, -h, 6, h);
+   456→  ctx.restore();
+   457→}
+   458→
+   459→// ambient particle systems
+   460→function embers(ctx: CanvasRenderingContext2D, eng: GameEngine, rgb: string, n: number, kind = "ember") {
+   461→  ctx.fillStyle = "#fff";
+   462→  for (let i = 0; i < n; i++) {
+   463→    const seed = i * 37.7;
+   464→    const x = (seed * 1.3 + eng.time * (10 + (i % 5) * 4)) % VIRTUAL_W;
+   465→    let y = GROUND_Y - ((seed * 0.7) % 360) - (eng.time * (8 + (i % 4) * 3)) % 70;
+   466→    y = ((y % 400) + 400) % 400;
+   467→    ctx.globalAlpha = 0.3 + 0.4 * Math.abs(Math.sin(eng.time * 1.5 + i));
+   468→    ctx.fillStyle = rgb + (kind === "sand" ? "0.5)" : "0.8)");
+   469→    ctx.fillRect(x, y, 2, 2);
+   470→  }
+   471→  ctx.globalAlpha = 1;
+   472→}
+   473→
+   474→function fireflies(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   475→  for (let i = 0; i < 18; i++) {
+   476→    const seed = i * 51.7;
+   477→    const x = (seed * 1.7 + eng.time * (6 + (i % 3) * 3)) % VIRTUAL_W;
+   478→    const y = 120 + ((seed * 0.9) % 300) + Math.sin(eng.time * 1.2 + i) * 16;
+   479→    const a = 0.3 + 0.6 * Math.abs(Math.sin(eng.time * 2 + i));
+   480→    ctx.globalAlpha = a;
+   481→    ctx.fillStyle = "rgba(190,255,170,0.9)";
+   482→    ctx.beginPath();
+   483→    ctx.arc(x, y, 1.8, 0, Math.PI * 2);
+   484→    ctx.fill();
+   485→  }
+   486→  ctx.globalAlpha = 1;
+   487→}
+   488→
+   489→function petals(ctx: CanvasRenderingContext2D, eng: GameEngine, rgb: string) {
+   490→  for (let i = 0; i < 22; i++) {
+   491→    const seed = i * 43.1;
+   492→    const x = (seed * 1.5 + eng.time * (16 + (i % 4) * 6)) % (VIRTUAL_W + 40) - 20;
+   493→    const y = ((seed * 0.8 + eng.time * (20 + (i % 3) * 8)) % 460);
+   494→    const sw = Math.sin(eng.time * 3 + i) * 12;
+   495→    ctx.globalAlpha = 0.5;
+   496→    ctx.fillStyle = rgb + "0.6)";
+   497→    ctx.beginPath();
+   498→    ctx.ellipse(x + sw, y, 3, 1.6, eng.time + i, 0, Math.PI * 2);
+   499→    ctx.fill();
+   500→  }
+   501→  ctx.globalAlpha = 1;
+   502→}
+   503→
+   504→function snow(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   505→  ctx.fillStyle = "rgba(255,255,255,0.85)";
+   506→  for (let i = 0; i < 60; i++) {
+   507→    const seed = i * 29.3;
+   508→    const x = (seed * 1.7 + Math.sin(eng.time * 0.8 + i) * 22) % VIRTUAL_W;
+   509→    const y = ((seed * 0.6 + eng.time * (26 + (i % 4) * 10)) % 480);
+   510→    const s = 1 + (i % 3);
+   511→    ctx.globalAlpha = 0.4 + 0.5 * ((i % 5) / 5);
+   512→    ctx.fillRect(x, y, s, s);
+   513→  }
+   514→  ctx.globalAlpha = 1;
+   515→}
+   516→
+   517→// ---------------------------------------------------------------- fighters
+   518→
+   519→function drawGroundShadow(ctx: CanvasRenderingContext2D, f: Fighter) {
+   520→  const air = (GROUND_Y - f.y) / 200; // 0 on ground, >0 in air
+   521→  const w = 30 * (1 - Math.min(0.6, air));
+   522→  const a = 0.45 * (1 - Math.min(0.7, air));
+   523→  ctx.save();
+   524→  ctx.translate(f.x, GROUND_Y + 2);
+   525→  ctx.scale(1, 0.32);
+   526→  ctx.fillStyle = `rgba(0,0,0,${a})`;
+   527→  ctx.beginPath();
+   528→  ctx.arc(0, 0, w, 0, Math.PI * 2);
+   529→  ctx.fill();
+   530→  ctx.restore();
+   531→}
+   532→
+   533→// pulsing energy aura: strong when attacking, faint + reddish when low HP.
+   534→function drawAura(ctx: CanvasRenderingContext2D, f: Fighter) {
+   535→  const attacking = f.isAttacking();
+   536→  const lowHp = f.hp > 0 && f.hp / f.maxHp < 0.3;
+   537→  if (!attacking && !lowHp) return;
+   538→  const cx = f.x;
+   539→  const cy = f.y - 95;
+   540→  let alpha = 0;
+   541→  let color = f.rim;
+   542→  if (attacking) {
+   543→    alpha = 0.5;
+   544→  }
+   545→  if (lowHp) {
+   546→    alpha = Math.max(alpha, 0.35 + 0.2 * Math.sin(f.stateTime * 8));
+   547→    color = "#ef4444";
+   548→  }
+   549→  ctx.save();
+   550→  ctx.globalCompositeOperation = "lighter";
+   551→  const g = ctx.createRadialGradient(cx, cy, 6, cx, cy, 70);
+   552→  g.addColorStop(0, hexA(color, alpha));
+   553→  g.addColorStop(1, hexA(color, 0));
+   554→  ctx.fillStyle = g;
+   555→  ctx.beginPath();
+   556→  ctx.arc(cx, cy, 70, 0, Math.PI * 2);
+   557→  ctx.fill();
+   558→  ctx.restore();
+   559→}
+   560→
+   561→// hex color (#rrggbb) -> rgba string with given alpha
+   562→function hexA(hex: string, a: number): string {
+   563→  const h = hex.replace("#", "");
+   564→  const r = parseInt(h.substring(0, 2), 16) || 255;
+   565→  const g = parseInt(h.substring(2, 4), 16) || 255;
+   566→  const b = parseInt(h.substring(4, 6), 16) || 255;
+   567→  return `rgba(${r},${g},${b},${a})`;
+   568→}
+   569→
+   570→function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
+   571→  const j = computeJoints(f);
+   572→  const rim = f.rim;
+   573→  const fill = "#060606";
+   574→
+   575→  ctx.save();
+   576→  ctx.translate(f.x, 0);
+   577→  if (f.facing === -1) ctx.scale(-1, 1);
+   578→  // acrobatic body rotation (flip jump / roll) around the hip
+   579→  if (f.spin) {
+   580→    ctx.translate(0, j.hip[1]);
+   581→    ctx.rotate(f.spin);
+   582→    ctx.translate(0, -j.hip[1]);
+   583→  }
+   584→
+   585→  ctx.lineCap = "round";
+   586→  ctx.lineJoin = "round";
+   587→
+   588→  // draw body solid first (no shadow, so segments blend seamlessly)
+   589→  ctx.shadowBlur = 0;
+   590→
+   591→  // Tapered limb: a filled capsule that's thicker at the proximal joint (a)
+   592→  // and thinner at the distal end (b), giving anatomically correct limbs.
+   593→  const taperedLimb = (
+   594→    a: [number, number],
+   595→    b: [number, number],
+   596→    wa: number,
+   597→    wb: number,
+   598→  ) => {
+   599→    const dx = b[0] - a[0];
+   600→    const dy = b[1] - a[1];
+   601→    const len = Math.hypot(dx, dy) || 1;
+   602→    const nx = -dy / len; // perpendicular
+   603→    const ny = dx / len;
+   604→    ctx.fillStyle = fill;
+   605→    ctx.beginPath();
+   606→    // start at the side of a, go around a's cap, to the side of b, around b's cap
+   607→    ctx.moveTo(a[0] + nx * wa, a[1] + ny * wa);
+   608→    ctx.lineTo(b[0] + nx * wb, b[1] + ny * wb);
+   609→    ctx.arc(b[0], b[1], wb, Math.atan2(ny, nx), Math.atan2(-ny, -nx), false);
+   610→    ctx.lineTo(a[0] - nx * wa, a[1] - ny * wa);
+   611→    ctx.arc(a[0], a[1], wa, Math.atan2(-ny, -nx), Math.atan2(ny, nx), false);
+   612→    ctx.closePath();
+   613→    ctx.fill();
+   614→  };
+   615→  const joint = (p: [number, number], r: number) => {
+   616→    ctx.fillStyle = fill;
+   617→    ctx.beginPath();
+   618→    ctx.arc(p[0], p[1], r, 0, Math.PI * 2);
+   619→    ctx.fill();
+   620→  };
+   621→
+   622→  // body-type-scaled widths
+   623→  const wt = j.props.wTorso, wa = j.props.wArm, wl = j.props.wLeg;
+   624→  const hr = j.props.headR;
+   625→
+   626→  // back leg
+   627→  taperedLimb(j.hip, j.bKnee, 16 * wl, 13 * wl);
+   628→  taperedLimb(j.bKnee, j.bFoot, 13 * wl, 9 * wl);
+   629→  joint(j.bKnee, 13 * wl);
+   630→  foot(ctx, j.bFoot, 10 * wl);
+   631→  // back arm
+   632→  taperedLimb(j.bShoulder, j.bElbow, 11 * wa, 8 * wa);
+   633→  taperedLimb(j.bElbow, j.bHand, 8 * wa, 5 * wa);
+   634→  joint(j.bElbow, 4);
+   635→  // torso
+   636→  taperedLimb(j.hip, j.chest, 20 * wt, 14 * wt);
+   637→  joint(j.hip, 20 * wt);
+   638→  joint(j.chest, 14 * wt);
+   639→  // neck
+   640→  taperedLimb(j.chest, [j.head[0], j.head[1] + hr - 2], 9, 7);
+   641→  // head
+   642→  ctx.fillStyle = fill;
+   643→  ctx.beginPath();
+   644→  ctx.arc(j.head[0], j.head[1], hr, 0, Math.PI * 2);
+   645→  ctx.fill();
+   646→
+   647→  // motion blur on attacking limb during active frames
+   648→  const atk = f.currentAttack;
+   649→  const [a0, a1] = atk ? ACTIVE_WINDOW[atk] : [0, 0];
+   650→  const inActive = f.isAttacking() && atk && f.progress >= a0 && f.progress <= a1;
+   651→
+   652→  // front leg
+   653→  if (inActive && (atk === "kick" || atk === "roundhouse")) {
+   654→    motionFan(ctx, j.fKnee, j.fFoot, 12, rim);
+   655→  }
+   656→  taperedLimb(j.hip, j.fKnee, 16 * wl, 13 * wl);
+   657→  taperedLimb(j.fKnee, j.fFoot, 13 * wl, 9 * wl);
+   658→  joint(j.fKnee, 13 * wl);
+   659→  foot(ctx, j.fFoot, 10 * wl);
+   660→
+   661→  // front arm
+   662→  if (inActive && atk === "punch") {
+   663→    motionFan(ctx, j.fElbow, j.fHand, 8, rim);
+   664→  }
+   665→  taperedLimb(j.fShoulder, j.fElbow, 11 * wa, 8 * wa);
+   666→  taperedLimb(j.fElbow, j.fHand, 8 * wa, 5 * wa);
+   667→  joint(j.fElbow, 4);
+   668→  joint(j.fHand, 3);
+   669→
+   670→  // blade glint along the striking limb
+   671→  if (f.blade && inActive) {
+   672→    let a: [number, number];
+   673→    let b: [number, number];
+   674→    if (atk === "punch") {
+   675→      a = j.fElbow;
+   676→      b = [j.fHand[0] + 6, j.fHand[1]];
+   677→    } else {
+   678→      a = j.fKnee;
+   679→      b = [j.fFoot[0] + 8, j.fFoot[1] - 2];
+   680→    }
+   681→    ctx.shadowBlur = 12;
+   682→    ctx.shadowColor = "#eaf6ff";
+   683→    ctx.strokeStyle = "rgba(230,245,255,0.95)";
+   684→    ctx.lineWidth = 2.4;
+   685→    ctx.beginPath();
+   686→    ctx.moveTo(a[0], a[1]);
+   687→    ctx.lineTo(b[0], b[1]);
+   688→    ctx.stroke();
+   689→  }
+   690→
+   691→  // rim light: soft glow on the head's back-top edge only
+   692→  // — no per-segment strokes (those created fake internal "gaps" at joints).
+   693→  ctx.shadowBlur = 0;
+   694→  ctx.globalAlpha = 0.5;
+   695→  ctx.strokeStyle = rim;
+   696→  ctx.lineWidth = 2;
+   697→  ctx.beginPath();
+   698→  ctx.arc(j.head[0] - 1.5, j.head[1] - 1.5, j.props.headR - 1, Math.PI * 1.05, Math.PI * 1.95);
+   699→  ctx.stroke();
+   700→  ctx.globalAlpha = 1;
+   701→
+   702→  ctx.restore();
+   703→}
+   704→
+   705→// draw a translucent "fan" of motion copies of a limb segment
+   706→function motionFan(
+   707→  ctx: CanvasRenderingContext2D,
+   708→  a: [number, number],
+   709→  b: [number, number],
+   710→  w: number,
+   711→  rim: string,
+   712→) {
+   713→  const dx = b[0] - a[0];
+   714→  const dy = b[1] - a[1];
+   715→  ctx.shadowBlur = 0;
+   716→  ctx.strokeStyle = rim;
+   717→  ctx.lineCap = "round";
+   718→  for (let i = 1; i <= 3; i++) {
+   719→    const ang = (i * 0.13) * (dx >= 0 ? 1 : -1);
+   720→    const cos = Math.cos(ang);
+   721→    const sin = Math.sin(ang);
+   722→    const rx = dx * cos - dy * sin;
+   723→    const ry = dx * sin + dy * cos;
+   724→    ctx.globalAlpha = 0.16 - i * 0.03;
+   725→    ctx.lineWidth = w;
+   726→    ctx.beginPath();
+   727→    ctx.moveTo(a[0], a[1]);
+   728→    ctx.lineTo(a[0] + rx, a[1] + ry);
+   729→    ctx.stroke();
+   730→  }
+   731→  ctx.globalAlpha = 1;
+   732→}
+   733→
+   734→function foot(ctx: CanvasRenderingContext2D, foot: [number, number], w: number) {
+   735→  ctx.fillStyle = "#060606";
+   736→  ctx.beginPath();
+   737→  ctx.ellipse(foot[0] + 4, foot[1] - 1, w * 0.6, 3.5, 0, 0, Math.PI * 2);
+   738→  ctx.fill();
+   739→}
+   740→
+   741→function drawShockwaves(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   742→  ctx.save();
+   743→  ctx.globalCompositeOperation = "lighter";
+   744→  for (const s of eng.shockwaves) {
+   745→    const t = s.life / s.maxLife;
+   746→    const a = t * 0.9;
+   747→    // outer glow ring
+   748→    ctx.strokeStyle = hexA(s.color, a);
+   749→    ctx.lineWidth = s.width * t + 1;
+   750→    ctx.shadowColor = s.color;
+   751→    ctx.shadowBlur = 18;
+   752→    ctx.beginPath();
+   753→    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+   754→    ctx.stroke();
+   755→    // inner thin bright ring
+   756→    ctx.shadowBlur = 0;
+   757→    ctx.strokeStyle = `rgba(255,255,255,${a * 0.8})`;
+   758→    ctx.lineWidth = Math.max(1, s.width * 0.4 * t);
+   759→    ctx.beginPath();
+   760→    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+   761→    ctx.stroke();
+   762→  }
+   763→  ctx.restore();
+   764→  ctx.shadowBlur = 0;
+   765→}
+   766→
+   767→function drawParticles(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   768→  // additive pass for bright energy particles (sparks, streaks, rings)
+   769→  ctx.save();
+   770→  ctx.globalCompositeOperation = "lighter";
+   771→  for (const p of eng.particles) {
+   772→    const t = p.life / p.maxLife;
+   773→    if (p.kind === "ring") {
+   774→      ctx.strokeStyle = p.color;
+   775→      ctx.globalAlpha = t;
+   776→      ctx.lineWidth = 3 * t + 1;
+   777→      ctx.shadowColor = p.color;
+   778→      ctx.shadowBlur = 12;
+   779→      ctx.beginPath();
+   780→      ctx.arc(p.x, p.y, (1 - t) * 40 + 6, 0, Math.PI * 2);
+   781→      ctx.stroke();
+   782→      ctx.shadowBlur = 0;
+   783→    } else if (p.kind === "streak") {
+   784→      // elongated energy streak pointing along its velocity
+   785→      const len = p.size;
+   786→      const sp = Math.hypot(p.vx, p.vy) || 1;
+   787→      const ux = p.vx / sp;
+   788→      const uy = p.vy / sp;
+   789→      ctx.strokeStyle = p.color;
+   790→      ctx.globalAlpha = t;
+   791→      ctx.lineWidth = 2.4 * t + 0.6;
+   792→      ctx.shadowColor = p.color;
+   793→      ctx.shadowBlur = 10;
+   794→      ctx.beginPath();
+   795→      ctx.moveTo(p.x, p.y);
+   796→      ctx.lineTo(p.x - ux * len, p.y - uy * len);
+   797→      ctx.stroke();
+   798→      ctx.shadowBlur = 0;
+   799→    } else if (p.kind === "spark") {
+   800→      ctx.fillStyle = p.color;
+   801→      ctx.globalAlpha = t;
+   802→      ctx.shadowColor = p.color;
+   803→      ctx.shadowBlur = 8;
+   804→      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+   805→      ctx.shadowBlur = 0;
+   806→    }
+   807→  }
+   808→  ctx.restore();
+   809→  ctx.globalAlpha = 1;
+   810→  // dust (normal blend, soft)
+   811→  for (const p of eng.particles) {
+   812→    if (p.kind !== "dust") continue;
+   813→    const t = p.life / p.maxLife;
+   814→    ctx.fillStyle = p.color;
+   815→    ctx.globalAlpha = t;
+   816→    ctx.beginPath();
+   817→    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+   818→    ctx.fill();
+   819→  }
+   820→  ctx.globalAlpha = 1;
+   821→}
+   822→
+   823→function drawFloatingText(ctx: CanvasRenderingContext2D, eng: GameEngine) {
+   824→  ctx.textAlign = "center";
+   825→  ctx.textBaseline = "middle";
+   826→  for (const t of eng.texts) {
+   827→    const a = Math.min(1, t.life / 0.3);
+   828→    ctx.globalAlpha = a;
+   829→    ctx.font = `900 ${t.size}px Geist, system-ui, sans-serif`;
+   830→    ctx.lineWidth = 4;
+   831→    ctx.strokeStyle = "rgba(0,0,0,0.8)";
+   832→    ctx.strokeText(t.text, t.x, t.y);
+   833→    ctx.fillStyle = t.color;
+   834→    ctx.fillText(t.text, t.x, t.y);
+   835→  }
+   836→  ctx.globalAlpha = 1;
+   837→}
+   838→
+   839→function drawVignette(ctx: CanvasRenderingContext2D) {
+   840→  const v = ctx.createRadialGradient(
+   841→    VIRTUAL_W / 2,
+   842→    VIRTUAL_H / 2,
+   843→    200,
+   844→    VIRTUAL_W / 2,
+   845→    VIRTUAL_H / 2,
+   846→    620,
+   847→  );
+   848→  v.addColorStop(0, "rgba(0,0,0,0)");
+   849→  v.addColorStop(1, "rgba(0,0,0,0.55)");
+   850→  ctx.fillStyle = v;
+   851→  ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+   852→}
+   853→
