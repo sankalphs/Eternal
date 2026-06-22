@@ -372,6 +372,13 @@ export default function ShadowFight() {
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
   }, [eng, audio, muted, selOpp, selScene]);
+  const startTwoPlayer = useCallback(() => {
+    setPaused(false);
+    eng.startTwoPlayer();
+    setStarted(true);
+    setSnap(snapFrom(eng));
+    if (!muted) void audio.start();
+  }, [eng, audio, muted]);
   const backToMenu = useCallback(() => {
     eng.toMenu();
     setStarted(false);
@@ -415,6 +422,7 @@ export default function ShadowFight() {
   const showMatchEnd = started && snap.phase === "match_end";
   const showGameOver = started && snap.phase === "game_over";
   const showChampion = started && snap.phase === "champion";
+  const hideGameUI = showChampion;
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
