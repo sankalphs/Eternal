@@ -585,9 +585,8 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  // soft outer aura
-  ctx.shadowColor = rim;
-  ctx.shadowBlur = 16;
+  // draw body solid first (no shadow, so segments blend seamlessly)
+  ctx.shadowBlur = 0;
 
   // Tapered limb: a filled capsule that's thicker at the proximal joint (a)
   // and thinner at the distal end (b), giving anatomically correct limbs.
@@ -689,24 +688,14 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter) {
     ctx.stroke();
   }
 
-  // rim light pass (two-tone: lit from back-top)
+  // rim light: soft glow on the head's back-top edge only
+  // — no per-segment strokes (those created fake internal "gaps" at joints).
   ctx.shadowBlur = 0;
+  ctx.globalAlpha = 0.5;
   ctx.strokeStyle = rim;
-  ctx.globalAlpha = 0.55;
-  ctx.lineWidth = 2.2;
-  const rimLimb = (a: [number, number], b: [number, number]) => {
-    ctx.beginPath();
-    ctx.moveTo(a[0] - 1.6, a[1] - 1.6);
-    ctx.lineTo(b[0] - 1.6, b[1] - 1.6);
-    ctx.stroke();
-  };
-  rimLimb(j.hip, j.chest);
-  rimLimb(j.fShoulder, j.fElbow);
-  rimLimb(j.fElbow, j.fHand);
-  rimLimb(j.hip, j.fKnee);
-  rimLimb(j.fKnee, j.fFoot);
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(j.head[0] - 1, j.head[1] - 1, j.props.headR - 1.5, Math.PI * 1.05, Math.PI * 1.95);
+  ctx.arc(j.head[0] - 1.5, j.head[1] - 1.5, j.props.headR - 1, Math.PI * 1.05, Math.PI * 1.95);
   ctx.stroke();
   ctx.globalAlpha = 1;
 
