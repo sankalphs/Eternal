@@ -1,6 +1,6 @@
 // Game engine: match/round flow, collision resolution, particles, effects.
 
-import { Fighter, GROUND_Y } from "./fighter";
+import { Fighter, GROUND_Y, STAGE_LEFT, STAGE_RIGHT } from "./fighter";
 import { EnemyAI } from "./ai";
 import type {
   BackgroundId,
@@ -19,7 +19,7 @@ export const OPPONENTS: OpponentDef[] = [
     // Level 1 — forgiving tutorial opponent. Telegraphs, recovers slowly,
     // rarely blocks. A new player should win comfortably.
     name: "Lynx",
-    title: "The First Sealer",
+    title: "The Last Apprentice",
     rim: "#f59e0b",
     hp: 70,
     damageMul: 0.55,
@@ -29,6 +29,8 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.55,
     combo: 1,
     bg: "sunset",
+    bodyType: "lean",
+    weapon: "fists",
     story: "The youngest of the order. He does not yet know the hero he hunts is already dead.",
     whiffPunish: 0.05,
     antiAir: 0.04,
@@ -41,7 +43,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 2 — slightly faster, throws 2-hit strings, occasional block.
     name: "Bandit",
-    title: "The Turncoat",
+    title: "The Defector",
     rim: "#fbbf24",
     hp: 84,
     damageMul: 0.68,
@@ -51,6 +53,8 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.44,
     combo: 2,
     bg: "desert",
+    bodyType: "lean",
+    weapon: "sword",
     story: "Once a shadow-touched blade, now turned sealer. He remembers what you are.",
     whiffPunish: 0.15,
     antiAir: 0.12,
@@ -63,7 +67,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 3 — competent: blocks reactively, punishes whiffs, zones.
     name: "Crane",
-    title: "The Iron Monk",
+    title: "The Temple Guard",
     rim: "#2dd4bf",
     hp: 100,
     damageMul: 0.82,
@@ -73,6 +77,8 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.32,
     combo: 2,
     bg: "temple",
+    bodyType: "tall",
+    weapon: "spear",
     story: "He forged the first chains that bound your kind. His guard is absolute.",
     whiffPunish: 0.3,
     antiAir: 0.25,
@@ -85,7 +91,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 4 — aggressive pressure, 3-hit combos, mixups begin.
     name: "Hermit",
-    title: "The Mountain Sage",
+    title: "The Hermit",
     rim: "#84cc16",
     hp: 114,
     damageMul: 0.94,
@@ -95,6 +101,8 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.26,
     combo: 3,
     bg: "bamboo",
+    bodyType: "hunched",
+    weapon: "dual",
     story: "He taught the dead swordsman everything. Now he teaches you fear.",
     whiffPunish: 0.45,
     antiAir: 0.4,
@@ -107,7 +115,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 5 — fast, blade-armed, whiff-punishes hard, adapts to patterns.
     name: "Widow",
-    title: "The Silent Blade",
+    title: "The Nightblade",
     rim: "#e879f9",
     hp: 118,
     damageMul: 1.05,
@@ -118,6 +126,8 @@ export const OPPONENTS: OpponentDef[] = [
     combo: 3,
     blade: true,
     bg: "moon",
+    bodyType: "lean",
+    weapon: "chain",
     story: "She was the swordsman's lover. She sees his face on you — and weeps as she strikes.",
     whiffPunish: 0.6,
     antiAir: 0.55,
@@ -130,7 +140,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 6 — relentless bruiser: huge HP, high pressure, frame traps.
     name: "Butcher",
-    title: "The Brute",
+    title: "The Colossus",
     rim: "#fb7185",
     hp: 144,
     damageMul: 1.18,
@@ -140,6 +150,8 @@ export const OPPONENTS: OpponentDef[] = [
     reaction: 0.22,
     combo: 3,
     bg: "volcano",
+    bodyType: "bulky",
+    weapon: "fists",
     story: "A sealer who gave up finesse for fury. He will not stop until you are caged.",
     whiffPunish: 0.65,
     antiAir: 0.5,
@@ -152,7 +164,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 7 — elite warlord: near-perfect defense, long combos, reads habits.
     name: "Shogun",
-    title: "The Warlord",
+    title: "The Shogun",
     rim: "#ef4444",
     hp: 156,
     damageMul: 1.24,
@@ -163,6 +175,8 @@ export const OPPONENTS: OpponentDef[] = [
     combo: 4,
     blade: true,
     bg: "snow",
+    bodyType: "bulky",
+    weapon: "sword",
     story: "He commanded the original sealing. He has waited centuries for this rematch.",
     whiffPunish: 0.78,
     antiAir: 0.7,
@@ -175,7 +189,7 @@ export const OPPONENTS: OpponentDef[] = [
   {
     // Level 8 — final boss: punishing, adaptive, rages when low, frame-perfect.
     name: "Titan",
-    title: "The Gatekeeper",
+    title: "The World's Last Hope",
     rim: "#a78bfa",
     hp: 190,
     damageMul: 1.4,
@@ -186,6 +200,8 @@ export const OPPONENTS: OpponentDef[] = [
     combo: 4,
     blade: true,
     bg: "moon",
+    bodyType: "tall",
+    weapon: "sword",
     story: "The last sealer. Defeat him, and the gates are yours to open — forever.",
     whiffPunish: 0.88,
     antiAir: 0.82,
@@ -220,7 +236,7 @@ export interface VFXEvent {
   kind: VFXEventKind;
   x: number;
   y: number;
-  hitType: "punch" | "kick" | "roundhouse" | null;
+  hitType: "punch" | "kick" | "roundhouse" | "super" | null;
 }
 
 export class GameEngine {
@@ -272,6 +288,23 @@ export class GameEngine {
     super: false,
   };
 
+  // second-player input (used when twoPlayer mode is active)
+  p2Input: InputState = {
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    punch: false,
+    kick: false,
+    roundhouse: false,
+    roll: false,
+    block: false,
+    super: false,
+  };
+
+  // when true, `enemy` is human-controlled via p2Input instead of by the AI
+  twoPlayer = false;
+
   // for edge-triggered player attacks we mirror into fighter; fighter handles edges.
   constructor() {
     this.player = new Fighter({
@@ -300,6 +333,8 @@ export class GameEngine {
       damageMul: def.damageMul,
       speedMul: def.speedMul,
       blade: def.blade,
+      bodyType: def.bodyType,
+      weapon: def.weapon,
     });
   }
 
@@ -321,6 +356,7 @@ export class GameEngine {
   startMatchWith(index: number, bg?: BackgroundId | null) {
     this.opponentIndex = Math.max(0, Math.min(OPPONENTS.length - 1, index));
     this.sceneOverride = bg ?? null;
+    this.twoPlayer = false;
     this.ai = new EnemyAI(OPPONENTS[this.opponentIndex]);
     this.enemy = this.makeEnemy(this.opponentIndex);
     this.playerWins = 0;
@@ -328,6 +364,37 @@ export class GameEngine {
     this.roundNo = 1;
     this.maxCombo = 0;
     this.startRound();
+  }
+
+  // Two-player versus: spawn a second human-controlled shadow fighter
+  // (mirrored stats) instead of an AI opponent. Plays on the current scene.
+  startTwoPlayer() {
+    this.twoPlayer = true;
+    this.sceneOverride = this.sceneOverride ?? "sunset";
+    this.enemy = new Fighter({
+      x: 600,
+      isPlayer: false,
+      facing: -1,
+      maxHp: this.player.maxHp,
+      rim: "#f87171",
+      name: "Player 2",
+      damageMul: 1.15,
+      blade: true,
+      bodyType: "lean",
+      weapon: "sword",
+    });
+    this.playerWins = 0;
+    this.enemyWins = 0;
+    this.roundNo = 1;
+    this.maxCombo = 0;
+    this.startRound();
+  }
+
+  // Skip straight to the destruction ending: jump to the final opponent,
+  // then immediately advance to the champion phase (bypasses the tournament).
+  skipToChampion() {
+    this.opponentIndex = OPPONENTS.length - 1;
+    this.nextOpponent();
   }
 
   // Return to the menu (abandon current match).
@@ -350,6 +417,7 @@ export class GameEngine {
       this.setAnnounce("CHAMPION", "You are the Shadow Lord", 999, true);
       return;
     }
+    this.twoPlayer = false;
     this.ai = new EnemyAI(OPPONENTS[this.opponentIndex]);
     this.enemy = this.makeEnemy(this.opponentIndex);
     this.playerWins = 0;
@@ -360,6 +428,7 @@ export class GameEngine {
 
   // Retry the current opponent from round 1 (after a game over).
   retryMatch() {
+    this.twoPlayer = false;
     this.ai = new EnemyAI(OPPONENTS[this.opponentIndex]);
     this.enemy = this.makeEnemy(this.opponentIndex);
     this.playerWins = 0;
@@ -373,7 +442,7 @@ export class GameEngine {
   startRound() {
     this.player.reset(360, 1);
     this.enemy.reset(600, -1);
-    this.ai.reset();
+    if (!this.twoPlayer) this.ai.reset();
     this.roundTimer = ROUND_TIME;
     this.particles = [];
     this.texts = [];
@@ -386,7 +455,21 @@ export class GameEngine {
     this.flash = 0;
     this.phase = "intro";
     this.phaseTimer = 2.2;
-    this.setAnnounce(`ROUND ${this.roundNo}`, this.vsText(), 2.2, true);
+    // Round 1 of a fresh match: a boss-intro beat — announce the opponent
+    // by name + title and snap the camera into a slow zoom-out + flash.
+    if (this.roundNo === 1 && !this.twoPlayer) {
+      this.setAnnounce(
+        this.opponent.name.toUpperCase(),
+        this.opponent.title,
+        2.4,
+        true,
+      );
+      this.zoom = 0.3;
+      this.flash = 0.5;
+      this.flashColor = this.opponent.rim;
+    } else {
+      this.setAnnounce(`ROUND ${this.roundNo}`, this.vsText(), 2.2, true);
+    }
   }
 
   private vsText() {
@@ -473,7 +556,11 @@ export class GameEngine {
   }
 
   private updateFight(dt: number, simDt: number) {
-    const enemyInput = this.ai.update(simDt, this.enemy, this.player);
+    // In two-player mode the enemy is driven by the second player's input
+    // (p2Input); otherwise the AI controller produces the input each frame.
+    const enemyInput = this.twoPlayer
+      ? this.p2Input
+      : this.ai.update(simDt, this.enemy, this.player);
     this.player.update(simDt, this.input, this.enemy);
     this.enemy.update(simDt, enemyInput, this.player);
 
@@ -481,6 +568,9 @@ export class GameEngine {
 
     this.resolveAttack(this.player, this.enemy);
     this.resolveAttack(this.enemy, this.player);
+
+    // environmental hazards (volcano / snow / temple)
+    this.updateHazards(dt);
 
     // round timer (real time)
     this.roundTimer -= dt;
@@ -491,6 +581,102 @@ export class GameEngine {
     }
     if (this.player.hp <= 0 || this.enemy.hp <= 0) {
       this.endRoundByKO();
+    }
+  }
+
+  // Per-arena environmental hazards: volcano scorches fighters near the edges,
+  // snow reduces traction (friction), temple drops debris from above.
+  private updateHazards(dt: number) {
+    const scene = this.scene;
+    if (scene === "volcano") {
+      // burning edges — chip damage when standing on the stage apron
+      for (const f of [this.player, this.enemy]) {
+        const nearEdge =
+          f.x <= STAGE_LEFT + 36 || f.x >= STAGE_RIGHT - 36;
+        if (nearEdge && f.onGround && f.invuln <= 0 && f.hp > 0) {
+          f.hp = Math.max(0, f.hp - 6 * dt);
+          // ember sparks at the feet
+          if (Math.random() < dt * 8) {
+            this.particles.push({
+              x: f.x + (Math.random() - 0.5) * 18,
+              y: GROUND_Y - 2,
+              vx: (Math.random() - 0.5) * 50,
+              vy: -60 - Math.random() * 80,
+              life: 0.4,
+              maxLife: 0.5,
+              size: 2 + Math.random() * 2,
+              color: Math.random() < 0.5 ? "#fb923c" : "#fde047",
+              kind: "spark",
+              grav: 220,
+            });
+          }
+        }
+      }
+    } else if (scene === "snow") {
+      // reduced traction: bleed off horizontal velocity more slowly so fighters
+      // slide further on stops and turns (apply a soft damping instead of the
+      // normal ground friction handled inside the fighter).
+      for (const f of [this.player, this.enemy]) {
+        if (f.onGround && Math.abs(f.vx) > 10) {
+          // tiny slip — preserves a fraction of momentum each frame
+          f.vx *= 1 - 0.4 * dt;
+        }
+      }
+      // gentle snow dust at the fighters' feet
+      if (Math.random() < dt * 4) {
+        for (const f of [this.player, this.enemy]) {
+          if (!f.onGround) continue;
+          this.particles.push({
+            x: f.x + (Math.random() - 0.5) * 24,
+            y: GROUND_Y - 1,
+            vx: (Math.random() - 0.5) * 20,
+            vy: -10 - Math.random() * 20,
+            life: 0.6,
+            maxLife: 0.8,
+            size: 2 + Math.random() * 2,
+            color: "rgba(220,230,245,0.55)",
+            kind: "dust",
+            grav: 30,
+          });
+        }
+      }
+    } else if (scene === "temple") {
+      // falling debris from the ceiling — a chip hazard for whoever it lands on
+      if (Math.random() < dt * 0.55) {
+        const x = 120 + Math.random() * (STAGE_RIGHT - STAGE_LEFT - 80);
+        this.particles.push({
+          x,
+          y: 40,
+          vx: (Math.random() - 0.5) * 30,
+          vy: 80,
+          life: 1.6,
+          maxLife: 1.8,
+          size: 5 + Math.random() * 5,
+          color: "#7c6f5b",
+          kind: "dust",
+          grav: 460,
+        });
+        // schedule a hit check ~0.8s later when the debris reaches the floor
+        const target = Math.abs(this.player.x - x) < 28 ? this.player
+          : Math.abs(this.enemy.x - x) < 28 ? this.enemy
+          : null;
+        if (target && target.invuln <= 0 && target.hp > 0) {
+          // small chip + flinch if the fighter is still there when it lands
+          window.setTimeout(() => {
+            if (
+              this.phase !== "fight" ||
+              target.hp <= 0
+            )
+              return;
+            if (Math.abs(target.x - x) < 32 && target.onGround) {
+              target.hp = Math.max(0, target.hp - 4);
+              target.hitstun = Math.max(target.hitstun, 0.18);
+              this.spawnSpark(x, GROUND_Y - 10, false, "roundhouse");
+              this.shake = Math.max(this.shake, 8);
+            }
+          }, 800);
+        }
+      }
     }
   }
 
@@ -509,7 +695,10 @@ export class GameEngine {
       attacker.attackHasHit = true;
       const heavy =
         !result.blocked &&
-        (ab.spec.type === "kick" || ab.spec.type === "roundhouse" || result.dmg >= 16);
+        (ab.spec.type === "kick" ||
+          ab.spec.type === "roundhouse" ||
+          ab.spec.type === "super" ||
+          result.dmg >= 16);
       // VFX
       this.hitstop = result.blocked ? 0.05 : heavy ? 0.16 : 0.09;
       this.shake = Math.max(
@@ -563,20 +752,23 @@ export class GameEngine {
     if (playerWon) this.playerWins += 1;
     else this.enemyWins += 1;
     this.phase = "round_end";
-    this.phaseTimer = 2.6;
-    // dramatic KO VFX
-    this.hitstop = 0.28;
-    this.shake = 34;
-    this.flash = 0.5;
+    this.phaseTimer = 3.5;
+    // enhanced dramatic KO VFX — long hitstop, hard shake, big flash,
+    // punch-zoom, sustained slow-motion and chromatic aberration.
+    this.hitstop = 0.6;
+    this.shake = 40;
+    this.flash = 0.7;
     this.flashColor = playerWon ? "#fde047" : "#f87171";
-    this.zoom = 0.9;
-    this.slowmo = 1.0;
-    this.chromAb = 1.0;
+    this.zoom = 1.2;
+    this.slowmo = 2.0;
+    this.chromAb = 1.2;
     const koX = (this.player.x + this.enemy.x) / 2;
-    this.spawnShockwave(koX, GROUND_Y - 90, 220, playerWon ? "#fde047" : "#f87171", 8);
-    this.spawnStreakBurst(koX, GROUND_Y - 90, 40, playerWon ? "#fde047" : "#f87171");
+    // double shockwave: a fast bright ring then a slower dark follow-up
+    this.spawnShockwave(koX, GROUND_Y - 90, 240, playerWon ? "#fde047" : "#f87171", 9);
+    this.spawnShockwave(koX, GROUND_Y - 90, 360, playerWon ? "#fef3c7" : "#fecaca", 5);
+    this.spawnStreakBurst(koX, GROUND_Y - 90, 48, playerWon ? "#fde047" : "#f87171");
     this.events.push({ kind: "ko", x: koX, y: GROUND_Y - 90, hitType: null });
-    this.setAnnounce("K.O.", playerWon ? "You won the round" : "You lost the round", 2.6, true);
+    this.setAnnounce("K.O.", playerWon ? "You won the round" : "You lost the round", 3.0, true);
     if (playerWon) this.player.setState("victory");
     else this.enemy.setState("victory");
   }
@@ -619,7 +811,7 @@ export class GameEngine {
 
   // ---- Particles & VFX ----
   private spawnSpark(x: number, y: number, blocked: boolean, type: string) {
-    const heavy = type === "kick" || type === "roundhouse";
+    const heavy = type === "kick" || type === "roundhouse" || type === "super";
     const n = blocked ? 10 : heavy ? 26 : 16;
     const color = blocked ? "#93c5fd" : heavy ? "#fde047" : "#fef08a";
     for (let i = 0; i < n; i++) {

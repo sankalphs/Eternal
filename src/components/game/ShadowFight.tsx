@@ -6,6 +6,7 @@ import { render, VIRTUAL_H, VIRTUAL_W } from "@/lib/game/render";
 import { GameAudio } from "@/lib/game/audio";
 import { PostFX } from "@/lib/game/postfx";
 import type { BackgroundId, InputState, Phase } from "@/lib/game/types";
+import DestructionEnding from "./DestructionEnding";
 
 interface Snapshot {
   phase: Phase;
@@ -21,6 +22,9 @@ interface Snapshot {
   announce: { main: string; sub?: string; big?: boolean } | null;
   combo: number;
   maxCombo: number;
+  pRage: number;
+  eRage: number;
+  twoPlayer: boolean;
 }
 
 function snapFrom(e: GameEngine): Snapshot {
@@ -40,6 +44,9 @@ function snapFrom(e: GameEngine): Snapshot {
       : null,
     combo: e.playerCombo,
     maxCombo: e.maxCombo,
+    pRage: e.player.rageMeter,
+    eRage: e.enemy.rageMeter,
+    twoPlayer: e.twoPlayer,
   };
 }
 
@@ -186,14 +193,21 @@ export default function ShadowFight() {
       // drain VFX events -> fire audio stingers + combat intensity
       let bump = 0;
       for (const ev of eng.events) {
+        // map VFX hitType to an audio HitKind (super -> roundhouse sound for now)
+        const audioKind: "punch" | "kick" | "roundhouse" =
+          ev.hitType === "kick"
+            ? "kick"
+            : ev.hitType === "punch"
+              ? "punch"
+              : "roundhouse";
         if (ev.kind === "ko") {
           audio.hit("ko");
           bump = Math.max(bump, 1);
         } else if (ev.kind === "heavy") {
-          audio.hit(ev.hitType === "roundhouse" ? "roundhouse" : "kick");
+          audio.hit(audioKind);
           bump = Math.max(bump, 0.75);
         } else if (ev.kind === "hit") {
-          audio.hit(ev.hitType ?? "punch");
+          audio.hit(audioKind);
           bump = Math.max(bump, 0.45);
         } else if (ev.kind === "block") {
           audio.hit("block");
@@ -208,6 +222,16 @@ export default function ShadowFight() {
       );
       if (bump > 0) intensityRef.current = Math.min(1, Math.max(intensityRef.current, bump));
       audio.setIntensity(intensityRef.current);
+
+      // dynamic music: darken the score when the player is low on HP, and
+      // pile on the percussion when the rage meter is full (either fighter).
+      const phpFrac = eng.player.maxHp > 0 ? eng.player.hp / eng.player.maxHp : 1;
+      audio.setLowHp(phpFrac < 0.3 && eng.phase === "fight");
+      audio.setRageFull(
+        eng.phase === "fight" &&
+          (eng.player.rageMeter >= eng.player.RAGE_MAX ||
+            eng.enemy.rageMeter >= eng.enemy.RAGE_MAX),
+      );
 
       // render
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -387,6 +411,14 @@ export default function ShadowFight() {
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
   }, [eng, audio, muted]);
+  // Skip straight to the destruction ending — a debug/convenience shortcut
+  // that bypasses the tournament and crowns the shadow immediately.
+  const skipToEnding = useCallback(() => {
+    eng.skipToChampion();
+    setStarted(true);
+    setSnap(snapFrom(eng));
+    if (!muted) void audio.start();
+  }, [eng, audio, muted]);
 
   const toggleMute = useCallback(() => {
     setMuted((m) => {
@@ -465,11 +497,12 @@ export default function ShadowFight() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] sm:text-xs font-bold tracking-widest text-rose-200/90 truncate">
-                  THE SHADOW
+                  {snap.twoPlayer ? "PLAYER 1" : "THE SHADOW"}
                 </span>
                 <Pips n={snap.pWins} color="#e2e8f0" />
               </div>
               <HealthBar pct={phpPct} align="left" color="from-rose-600 to-amber-400" />
+              <RageBar pct={(snap.pRage / 100) * 100} align="left" />
             </div>
             {/* timer */}
             <div className="flex flex-col items-center px-1">
@@ -488,12 +521,13 @@ export default function ShadowFight() {
                   className="text-[10px] sm:text-xs font-bold tracking-widest truncate text-right"
                   style={{ color: opp.rim }}
                 >
-                  {opp.name.toUpperCase()}
+                  {snap.twoPlayer ? "PLAYER 2" : opp.name.toUpperCase()}
                 </span>
               </div>
               <HealthBar pct={ehpPct} align="right" color="from-rose-700 to-fuchsia-500" />
+              <RageBar pct={(snap.eRage / 100) * 100} align="right" />
               <span className="block text-[9px] sm:text-[10px] text-white/50 text-right mt-0.5 truncate">
-                {opp.title}
+                {snap.twoPlayer ? "Versus" : opp.title}
               </span>
             </div>
           </div>
@@ -564,6 +598,7 @@ export default function ShadowFight() {
           onStart={start}
           onSelect={() => setView("select")}
           onTwoPlayer={startTwoPlayer}
+          onSkipToEnding={skipToEnding}
         />
       )}
       {showMenu && view === "select" && (
@@ -597,13 +632,10 @@ export default function ShadowFight() {
         />
       )}
       {showChampion && (
-        <EndPanel
-          title="THE GATEKEEPER"
-          subtitle="The last sealer falls. The gates swing wide. The shadow stands where the oath was sworn — and the river runs red."
-          accent="#a78bfa"
-          info={`Largest combo: ${snap.maxCombo} hits`}
-          primary={{ label: "Begin Anew", onClick: restart }}
-          secondary={{ label: "The Riverbank", onClick: backToMenu }}
+        <DestructionEnding
+          maxCombo={snap.maxCombo}
+          onRestart={restart}
+          onMenu={backToMenu}
         />
       )}
 
@@ -632,6 +664,37 @@ function HealthBar({
         style={{ width: `${pct}%` }}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-white/25 to-transparent pointer-events-none" />
+    </div>
+  );
+}
+
+function RageBar({ pct, align }: { pct: number; align: "left" | "right" }) {
+  const full = pct >= 100;
+  return (
+    <div
+      className={`mt-1 h-1.5 sm:h-2 w-full bg-black/60 border border-amber-900/40 rounded-sm overflow-hidden relative ${
+        full ? "animate-pulse" : ""
+      }`}
+    >
+      <div
+        className={`h-full transition-[width] duration-150 ease-out ${
+          align === "right" ? "ml-auto" : ""
+        } ${full ? "bg-gradient-to-r from-amber-300 via-orange-400 to-rose-500" : "bg-gradient-to-r from-amber-700/70 to-amber-500/80"}`}
+        style={{
+          width: `${pct}%`,
+          boxShadow: full ? "0 0 8px rgba(251,191,36,0.9)" : "none",
+        }}
+      />
+      {full && (
+        <span
+          className={`absolute top-1/2 -translate-y-1/2 text-[8px] sm:text-[9px] font-black tracking-widest text-amber-100 ${
+            align === "right" ? "right-1" : "left-1"
+          }`}
+          style={{ textShadow: "0 0 4px rgba(0,0,0,0.9)" }}
+        >
+          RAGE
+        </span>
+      )}
     </div>
   );
 }
@@ -734,10 +797,12 @@ function MenuPanel({
   onStart,
   onSelect,
   onTwoPlayer,
+  onSkipToEnding,
 }: {
   onStart: () => void;
   onSelect: () => void;
   onTwoPlayer: () => void;
+  onSkipToEnding: () => void;
 }) {
   return (
     <div className="absolute inset-0 z-30 overflow-y-auto bg-gradient-to-b from-black/80 via-black/60 to-black/85 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 sm:p-8">
@@ -745,7 +810,7 @@ function MenuPanel({
       <div className="w-24 h-px bg-gradient-to-r from-transparent via-rose-700/60 to-transparent mb-4" />
       <div className="text-center mb-3">
         <p className="text-rose-400/60 tracking-[0.4em] text-[10px] sm:text-xs mb-2">
-          THE RIVERBANK OATH
+          THE SHADOW&apos;S ASCENSION
         </p>
         <h1
           className="text-5xl sm:text-7xl font-black tracking-tight text-white"
@@ -795,6 +860,13 @@ function MenuPanel({
       </div>
       {/* ink-brush divider bottom */}
       <div className="w-24 h-px bg-gradient-to-r from-transparent via-rose-700/60 to-transparent mt-6" />
+      {/* skip-to-ending shortcut — lets you jump straight to the apocalypse */}
+      <button
+        onClick={onSkipToEnding}
+        className="mt-4 text-[10px] tracking-[0.3em] text-rose-500/30 hover:text-rose-400/70 transition-colors"
+      >
+        SKIP TO THE END ▶
+      </button>
     </div>
   );
 }

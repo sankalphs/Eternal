@@ -58,6 +58,9 @@ export class GameAudio {
   private _volume = 0.55;
   private intensity = 0;
   private lastErhuFreq = 0; // for portamento between erhu notes
+  // dynamic music state — set by the game loop
+  private lowHp = false; // when true, erhu shifts down + drone pulse
+  private rageFull = false; // when true, extra percussion weight
 
   private tempo = 84; // BPM — moderate, contemplative
   private get stepDur() {
@@ -81,6 +84,16 @@ export class GameAudio {
 
   setIntensity(v: number) {
     this.intensity = Math.max(0, Math.min(1, v));
+  }
+
+  // Dynamic music: when the player is low on HP the score darkens (erhu drops
+  // a scale degree and a low drone pulse is added). When the rage meter is
+  // full the percussion gets heavier (extra big drum + frame drum hits).
+  setLowHp(v: boolean) {
+    this.lowHp = v;
+  }
+  setRageFull(v: boolean) {
+    this.rageFull = v;
   }
 
   async start() {
@@ -276,9 +289,16 @@ export class GameAudio {
     if (this.intensity > 0.6 && step % 2 === 1) {
       this.templeBlock(time, 0.08);
     }
+    // rage-full: pile on extra big drum + frame drum hits for menace
+    if (this.rageFull) {
+      if (step === 8) this.bigDrum(time, 0.55);
+      if (step % 4 === 2) this.frameDrum(time, 0.28);
+    }
 
     // ---- sub bass on the bar root (downbeat) ----
     if (step === 0) this.subBass(BASS_ROOTS[bar], time);
+    // low-HP drone pulse: a low sustained sub-bass throb every half-bar
+    if (this.lowHp && step === 8) this.subBass(BASS_ROOTS[bar] * 0.5, time);
 
     // ---- guzheng ostinato (8th notes) ----
     if (step % 2 === 0) {
@@ -293,9 +313,11 @@ export class GameAudio {
     }
 
     // ---- erhu lead melody (8th notes, sustained) ----
+    // low HP: shift the lead down one pentatonic degree for a darker mood.
+    const erhuShift = this.lowHp ? -1 : 0;
     const eDeg = ERHU_BARS[bar][Math.floor(step / 2)];
     if (eDeg >= 0) {
-      const f = note(eDeg);
+      const f = note(eDeg + erhuShift);
       this.erhu(f, time, this.stepDur * 2.4, 0.13);
       this.lastErhuFreq = f;
     }

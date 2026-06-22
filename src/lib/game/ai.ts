@@ -145,6 +145,14 @@ export class EnemyAI {
     const adist = Math.abs(dist);
     const dirToOpp = dist >= 0 ? 1 : -1;
 
+    // ---- super move: if the rage meter is full and we're in range, let it
+    // rip. The fighter handles edge-triggering + meter drain, so just set
+    // the flag once we decide it's worth using. ----
+    if (self.rageMeter >= self.RAGE_MAX && adist < 120) {
+      input.super = true;
+      return input;
+    }
+
     // ---- whiff-punish window: if the player's attack just ended without
     // hitting us, dash in and punish. ----
     if (this.oppAttackMissedTimer > 0) {
@@ -397,12 +405,14 @@ export class EnemyAI {
     const justAttacked = attacking && !this.oppWasAttacking;
     if (justAttacked) {
       const kind = opp.currentAttack ?? "punch";
-      if (kind === "punch") this.habit.punchCount++;
-      else if (kind === "kick") this.habit.kickCount++;
-      else if (kind === "roundhouse") this.habit.rhCount++;
-      this.habit.openings[kind] = (this.habit.openings[kind] ?? 0) + 1;
+      // super is tracked as a heavy roundhouse for the habit memory
+      const tracked: AttackKind = kind === "kick" ? "kick" : kind === "punch" ? "punch" : "roundhouse";
+      if (tracked === "punch") this.habit.punchCount++;
+      else if (tracked === "kick") this.habit.kickCount++;
+      else this.habit.rhCount++;
+      this.habit.openings[tracked] = (this.habit.openings[tracked] ?? 0) + 1;
       this.habit.totalOpens++;
-      this.habit.lastMove = kind;
+      this.habit.lastMove = tracked;
     }
     if (airborne && !this.oppWasAirborne) {
       this.habit.jumpCount++;

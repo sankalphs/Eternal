@@ -1,21 +1,21 @@
-// The Riverbank Oath — a twisted storyline for the Shadow Fight intro.
-// Eight acts timed to the musical sections of "Steel on the Riverbank"
-// (141.98s ≈ 2:22). Each act is a DISTINCT painted scene that visually
-// depicts its narration — a movie, not subtitles over a static backdrop.
-// The twist: the player has been a demon wearing a dead hero's memories
-// all along — the "demons" they slew were the real sealers.
+// THE SHADOW'S ASCENSION — a storyline for the Shadow Fight intro. The player
+// is an ancient evil, unsealed from the Gates of Shadow. The opponents are the
+// last heroes — the Sealers — trying to cage the player once more. Eight acts
+// timed to the musical sections of "Steel on the Riverbank"
+// (141.98s ≈ 2:22). Each act is a DISTINCT painted scene that visually depicts
+// its narration — a movie, not subtitles over a static backdrop.
 
 export type SceneKind =
-  | "dawn_oath" // lone figure swearing at a riverbank at dawn
-  | "march_hunt" // silhouette marching across hills, demon shapes ahead
-  | "seals" // a body with glowing seals, reflection fading
-  | "village" // a village crowd cheering, torches
-  | "gate_meet" // the gate, an old master waiting — tension builds
+  | "dawn_oath" // the gates crack open at dawn — the shadow claws free
+  | "march_hunt" // the shadow marches out, silhouettes of the sealers massing ahead
+  | "seals" // a fallen hero's body with glowing chains, the shadow claiming them
+  | "village" // a village in flames, the people screaming, the shadow walking through
+  | "gate_meet" // the gate of the last temple, an old master waiting — tension builds
   | "gate_fight" // INTENSE sword fight at the gate — clashing blades, sparks
-  | "reflection_twist" // a reflection in water that is NOT the hero
-  | "demon_reveal" // the hero's silhouette splits to show the demon
-  | "screaming" // the "cheering" crowd revealed as screaming, fleeing
-  | "final_riverbank"; // shadow stands where the oath was sworn, river red
+  | "reflection_twist" // a reflection in blood-red water — the shadow's true face
+  | "demon_reveal" // the shadow fully unfurls — wings of darkness, crown of ash
+  | "screaming" // the world burning, the last heroes broken at the shadow's feet
+  | "final_riverbank"; // the shadow stands atop the ruined gate, world in ash
 
 export interface StoryBeat {
   t: number;
@@ -29,12 +29,12 @@ export const STORY_BEATS: StoryBeat[] = [
   {
     t: 0,
     end: 12,
-    act: "I — The Oath",
+    act: "I — The Unsealing",
     scene: "dawn_oath",
     lines: [
-      "They say a swordsman once stood on this riverbank.",
-      "At dawn, he swore an oath — to find the Gates of Shadow,",
-      "and seal them shut forever.",
+      "For a thousand years the Gates of Shadow held you.",
+      "Now, at dawn, the seals crack — and you are free.",
+      "An ancient evil, wearing flesh again, steps out onto the riverbank.",
     ],
   },
   {
@@ -43,9 +43,9 @@ export const STORY_BEATS: StoryBeat[] = [
     act: "II — The Hunt",
     scene: "march_hunt",
     lines: [
-      "He was a hero. The last of his order.",
-      "One by one, he hunted the demons who had slipped through the gate —",
-      "Lynx. Butcher. Widow. Shogun.",
+      "The last of the heroes gather to cage you once more.",
+      "Apprentice. Defector. Guard. Hermit. Nightblade. Colossus. Shogun.",
+      "One by one, you will break them, and take their seals.",
     ],
   },
   {
@@ -54,30 +54,31 @@ export const STORY_BEATS: StoryBeat[] = [
     act: "III — The Seals",
     scene: "seals",
     lines: [
-      "Each demon carried a seal. Each seal he claimed.",
-      "And with every seal, his reflection began to fade from the river.",
+      "Each hero carries a seal. Each seal you claim.",
+      "With every seal, the chains that bound you grow weaker —",
+      "and your shadow stretches longer across the world.",
     ],
   },
   {
     t: 34,
     end: 51,
-    act: "IV — The Cheers",
+    act: "IV — The Reckoning",
     scene: "village",
     lines: [
-      "But the villages he saved still cheered his name.",
-      "They lit torches. They called him savior.",
-      "He told himself it was a fair trade.",
+      "The villages that once cheered the heroes now burn.",
+      "Their torches are nothing against your dark.",
+      "There are no more cheers. Only ash, and silence.",
     ],
   },
   {
     t: 51,
     end: 62,
-    act: "V — The Master",
+    act: "V — The Last Master",
     scene: "gate_meet",
     lines: [
-      "At last he came to the final gate, where his old master waited.",
-      "'You have done well,' the old man said, smiling.",
-      "'Now — give me the seals. Let me finish what you started.'",
+      "At last you come to the final temple, where the last master waits.",
+      "'Abomination,' he says, drawing his blade. 'I sealed you once.'",
+      "'I will seal you again — or die in the trying.'",
     ],
   },
   {
@@ -86,9 +87,9 @@ export const STORY_BEATS: StoryBeat[] = [
     act: "VI — The Clash",
     scene: "gate_fight",
     lines: [
-      "The shadow refused. The master drew his blade.",
-      "Steel rang on steel at the gate of shadow —",
-      "the last sealer against the thing that wore his student's face.",
+      "The master lunges. Steel rings on shadow at the gate of the temple —",
+      "the world's last hope against the thing that wore a hero's skin",
+      "and walked the whole road home to burn it.",
     ],
   },
   {
@@ -97,21 +98,20 @@ export const STORY_BEATS: StoryBeat[] = [
     act: "VII — The Reflection",
     scene: "reflection_twist",
     lines: [
-      "The master fell. The shadow took the final seal.",
-      "And in the river below, the face that looked back...",
-      "was not the swordsman's. It was the master's.",
+      "The master falls. You take the final seal from his hand.",
+      "And in the blood-red water below, the face that looks back...",
+      "is finally, fully, your own.",
     ],
   },
   {
     t: 103,
     end: 121,
-    act: "VIII — The Truth",
+    act: "VIII — The Ascension",
     scene: "demon_reveal",
     lines: [
-      "The swordsman had died at the very first gate.",
-      "The thing that walked the whole road in his skin was a demon —",
-      "wearing his memories, hunting its own kind,",
-      "to become the new Gatekeeper.",
+      "No more masks. No more borrowed faces.",
+      "Your shadow unfurls into wings of darkness, a crown of ash.",
+      "The Gates of Shadow swing wide — and cannot ever close again.",
     ],
   },
   {
@@ -120,24 +120,24 @@ export const STORY_BEATS: StoryBeat[] = [
     act: "IX — The Screams",
     scene: "screaming",
     lines: [
-      "The 'demons' he slew were the real sealers —",
-      "the heroes, trying to cage him once more.",
-      "The cheers of the people... had been screams all along.",
+      "The heroes who came to stop you lie broken at your feet.",
+      "The apprentices. The defectors. The last hope of the world.",
+      "What were once battle-cries... are now only silence.",
     ],
   },
   {
     t: 134,
     end: 142,
-    act: "Coda — The Riverbank",
+    act: "Coda — The Ascension",
     scene: "final_riverbank",
     lines: [
-      "Now the shadow stands where the oath was sworn,",
-      "wearing a hero's face.",
-      "The gates are open. The river runs red.",
-      "And you — are the shadow.",
+      "Now you stand atop the ruined gate, where the oath was sworn.",
+      "The river runs red. The sky burns black.",
+      "The world is yours to end.",
+      "And you — are the shadow ascended.",
     ],
   },
 ];
 
 export const STORY_DURATION = 142; // seconds (~2:22)
-export const TITLE = "THE RIVERBANK OATH";
+export const TITLE = "THE SHADOW'S ASCENSION";

@@ -1,6 +1,6 @@
 // Fighter entity: physics, state machine, actions, hitboxes, damage.
 
-import type { AttackSpec, Facing, InputState, Pose, Rect } from "./types";
+import type { AttackSpec, BodyType, Facing, InputState, Pose, Rect, WeaponType } from "./types";
 import {
   ATTACK_SPECS,
   ACTIVE_WINDOW,
@@ -33,6 +33,8 @@ export interface FighterOpts {
   damageMul?: number;
   speedMul?: number;
   blade?: boolean;
+  bodyType?: BodyType;
+  weapon?: WeaponType;
 }
 
 export class Fighter {
@@ -48,6 +50,11 @@ export class Fighter {
   name: string;
   damageMul: number;
   speedMul: number;
+  bodyType: BodyType;
+  weapon: WeaponType;
+  // rage resource — fills by dealing/taking damage, unlocks the super move
+  rageMeter = 0;
+  readonly RAGE_MAX = 100;
 
   state: import("./types").FighterState = "idle";
   stateTime = 0;
@@ -70,6 +77,7 @@ export class Fighter {
   private prevKick = false;
   private prevRoundhouse = false;
   private prevRoll = false;
+  private prevSuper = false;
 
   // knockdown get-up
   downTimer = 0;
@@ -85,6 +93,8 @@ export class Fighter {
     this.damageMul = o.damageMul ?? 1;
     this.speedMul = o.speedMul ?? 1;
     this.blade = o.blade ?? false;
+    this.bodyType = o.bodyType ?? "lean";
+    this.weapon = o.weapon ?? "sword";
   }
 
   reset(x: number, facing: Facing) {
@@ -107,6 +117,9 @@ export class Fighter {
     this.spin = 0;
     this.rollDir = 1;
     this.hp = this.maxHp;
+    this.rageMeter = 0;
+    this.prevSuper = false;
+    this.jumpHeld = false;
   }
 
   get dur(): number {
@@ -130,7 +143,12 @@ export class Fighter {
     if (!this.onGround) return false;
     if (this.state === "hit" || this.state === "knockdown") return false;
     if (this.state === "getup") return false;
-    if (this.state === "punch" || this.state === "kick" || this.state === "roundhouse")
+    if (
+      this.state === "punch" ||
+      this.state === "kick" ||
+      this.state === "roundhouse" ||
+      this.state === "super"
+    )
       return false;
     if (this.state === "roll") return false;
     if (this.state === "victory" || this.state === "defeated") return false;
@@ -146,7 +164,8 @@ export class Fighter {
     return (
       this.state === "punch" ||
       this.state === "kick" ||
-      this.state === "roundhouse"
+      this.state === "roundhouse" ||
+      this.state === "super"
     );
   }
 
@@ -158,7 +177,7 @@ export class Fighter {
     if (this.state !== s) {
       this.state = s;
       this.stateTime = 0;
-      if (s === "punch" || s === "kick" || s === "roundhouse") {
+      if (s === "punch" || s === "kick" || s === "roundhouse" || s === "super") {
         this.attackHasHit = false;
         this.currentAttack = s;
       } else if (s !== "hit") {
@@ -214,6 +233,12 @@ export class Fighter {
     dmg = Math.round(dmg);
 
     this.hp = Math.max(0, this.hp - dmg);
+
+    // rage: defender gains a chunk on a clean hit (and a little even when
+    // blocking); attacker gains a smaller amount (offense builds rage too).
+    if (!blocked) this.rageMeter = Math.min(this.RAGE_MAX, this.rageMeter + dmg * 0.8);
+    else this.rageMeter = Math.min(this.RAGE_MAX, this.rageMeter + dmg * 0.3);
+    attacker.rageMeter = Math.min(attacker.RAGE_MAX, attacker.rageMeter + dmg * 0.4);
 
     const hitX = this.x - fromFacing * 10;
     const hitY = GROUND_Y + spec.height;
@@ -318,6 +343,7 @@ export class Fighter {
       this.state !== "punch" &&
       this.state !== "kick" &&
       this.state !== "roundhouse" &&
+      this.state !== "super" &&
       this.state !== "roll" &&
       this.state !== "hit" &&
       this.state !== "knockdown" &&
@@ -429,9 +455,18 @@ export class Fighter {
     const punchEdge = input.punch && !this.prevPunch;
     const kickEdge = input.kick && !this.prevKick;
     const rhEdge = input.roundhouse && !this.prevRoundhouse;
+    const superEdge = input.super && !this.prevSuper;
     this.prevPunch = input.punch;
     this.prevKick = input.kick;
     this.prevRoundhouse = input.roundhouse;
+    this.prevSuper = input.super;
+
+    // Super move — only when the rage meter is full. Drains the meter.
+    if (superEdge && this.rageMeter >= this.RAGE_MAX) {
+      this.startAttack("super");
+      this.rageMeter = 0;
+      return;
+    }
 
     if (punchEdge) {
       this.startAttack("punch");

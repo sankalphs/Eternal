@@ -39,6 +39,7 @@ export type FighterState =
   | "punch"
   | "kick"
   | "roundhouse"
+  | "super"
   | "block"
   | "hit"
   | "knockdown"
@@ -46,7 +47,7 @@ export type FighterState =
   | "victory"
   | "defeated";
 
-export type AttackType = "punch" | "kick" | "roundhouse";
+export type AttackType = "punch" | "kick" | "roundhouse" | "super";
 
 export interface AttackSpec {
   type: AttackType;
@@ -94,6 +95,9 @@ export interface FloatingText {
   size: number;
 }
 
+export type BodyType = "lean" | "bulky" | "tall" | "hunched";
+export type WeaponType = "sword" | "dual" | "chain" | "spear" | "fists";
+
 export interface OpponentDef {
   name: string;
   title: string;
@@ -107,6 +111,8 @@ export interface OpponentDef {
   combo: number; // max consecutive attacks in a string
   blade?: boolean;
   bg: BackgroundId;
+  bodyType?: BodyType;
+  weapon?: WeaponType;
   // ---- dynamic / advanced AI capabilities (scale with level) ----
   whiffPunish?: number; // 0..1 chance to punish a missed player attack
   antiAir?: number; // 0..1 chance to anti-air a jumping player
@@ -138,4 +144,5 @@ export interface InputState {
   roundhouse: boolean;
   roll: boolean;
   block: boolean;
+  super: boolean;
 }

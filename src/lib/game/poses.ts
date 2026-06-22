@@ -392,6 +392,100 @@ export function poseFor(c: PoseCtx): Pose {
         c.p,
       );
     }
+    case "super": {
+      // Rising uppercut finisher: deep coil, erupt upward into a leaping
+      // uppercut that lifts the whole body off the ground, then recover
+      // back to guard. Long and dramatic — a super move should feel earned.
+      return kf(
+        [
+          // anticipation: sink deep, coil every joint, draw arms way back
+          [
+            0,
+            {
+              torsoLean: -0.18,
+              headTilt: -0.18,
+              hipDrop: 26,
+              bThigh: -0.55,
+              bShin: -0.6,
+              fThigh: 0.6,
+              fShin: 0.7,
+              fArm: -1.4,
+              fFore: 2.6,
+              bArm: -1.6,
+              bFore: 2.8,
+            },
+          ],
+          // eruption: hips drive up, lead arm fires upward in a jumping uppercut
+          [
+            0.28,
+            {
+              torsoLean: 0.45,
+              headTilt: 0.3,
+              hipDrop: -22,
+              bThigh: 0.6,
+              bShin: 1.2,
+              fThigh: 1.1,
+              fShin: 1.4,
+              fArm: 2.6,
+              fFore: 2.6,
+              bArm: 2.2,
+              bFore: 2.6,
+            },
+          ],
+          // active hold: hang at the apex, fist to the sky
+          [
+            0.52,
+            {
+              torsoLean: 0.45,
+              headTilt: 0.3,
+              hipDrop: -22,
+              bThigh: 0.6,
+              bShin: 1.2,
+              fThigh: 1.1,
+              fShin: 1.4,
+              fArm: 2.6,
+              fFore: 2.6,
+              bArm: 2.2,
+              bFore: 2.6,
+            },
+          ],
+          // recover: drop back down, recoil the arm, settle to guard
+          [
+            0.78,
+            {
+              torsoLean: 0.18,
+              headTilt: 0.08,
+              hipDrop: 4,
+              bThigh: -0.18,
+              bShin: -0.1,
+              fThigh: 0.22,
+              fShin: 0.18,
+              fArm: 0.9,
+              fFore: 1.6,
+              bArm: -0.6,
+              bFore: 2.2,
+            },
+          ],
+          [
+            1,
+            {
+              torsoLean: BASE.torsoLean,
+              headTilt: BASE.headTilt,
+              hipDrop: BASE.hipDrop,
+              bThigh: BASE.bThigh,
+              bShin: BASE.bShin,
+              fThigh: BASE.fThigh,
+              fShin: BASE.fShin,
+              fArm: BASE.fArm,
+              fFore: BASE.fFore,
+              bArm: BASE.bArm,
+              bFore: BASE.bFore,
+            },
+          ],
+        ],
+        c.p,
+      );
+    }
     case "block": {
       // Both forearms up in front, slight crouch.
       return {
@@ -544,6 +638,7 @@ export const STATE_DUR: Record<string, number> = {
   punch: 0.34,
   kick: 0.56,
   roundhouse: 0.82,
+  super: 1.2,
   hit: 0.26,
   knockdown: 0.65,
   getup: 0.5,
@@ -551,10 +646,11 @@ export const STATE_DUR: Record<string, number> = {
 };
 
 // Attack active-frame windows (progress within the attack state).
-export const ACTIVE_WINDOW: Record<"punch" | "kick" | "roundhouse", [number, number]> = {
+export const ACTIVE_WINDOW: Record<"punch" | "kick" | "roundhouse" | "super", [number, number]> = {
   punch: [0.15, 0.45],
   kick: [0.32, 0.6],
   roundhouse: [0.42, 0.62],
+  super: [0.28, 0.52],
 };
 
 export const ATTACK_SPECS = {
@@ -595,6 +691,19 @@ export const ATTACK_SPECS = {
     hitH: 48,
     knockback: 370,
     hitstun: 0.5,
+    launch: 0,
+  },
+  super: {
+    type: "super" as const,
+    startup: 1.2 * 0.28,
+    active: 1.2 * 0.24,
+    recovery: 1.2 * 0.48,
+    damage: 30,
+    range: 110,
+    height: -100,
+    hitH: 80,
+    knockback: 500,
+    hitstun: 0.8,
     launch: 0,
   },
 };
