@@ -126,6 +126,7 @@ export class EnemyAI {
       roundhouse: false,
       roll: false,
       block: false,
+      super: false,
     };
 
     this.selfHpFrac = self.hp / self.maxHp;

@@ -94,8 +94,72 @@ export default function ShadowFight() {
 
   const [snap, setSnap] = useState<Snapshot>(() => snapFrom(eng));
   const [started, setStarted] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+  const [rlStatus, setRlStatus] = useState("Initializing RL agent...");
+  const [rlEpisodes, setRlEpisodes] = useState(0);
+  const trainerRef = useRef<{ agent: { avgReward: number; episodes: number } } | null>(null);
+  const rlReadyRef = useRef(false);
 
-  // ---- main loop ----
+  // ---- RL: auto-train in background (lazy-loaded, starts after 5s delay) ----
+  useEffect(() => {
+    let cancelled = false;
+    const startTraining = async () => {
+      try {
+        const mod = await import("@/lib/game/rl");
+        if (cancelled) return;
+        const trainer = new mod.SelfPlayTrainer();
+        trainerRef.current = trainer;
+
+        const TOTAL = 2500;
+        const BATCH = 3;
+        const YIELD_MS = 100;
+        let done = 0;
+
+        const runChunk = () => {
+          if (cancelled || rlReadyRef.current) return;
+          try {
+            for (let i = 0; i < BATCH && done < TOTAL; i++) {
+              trainer.runEpisode();
+              done++;
+            }
+            setRlEpisodes(done);
+            if (done % 100 === 0 || done >= TOTAL) {
+              setRlStatus(`Training RL... ${done}/${TOTAL} · avg: ${trainer.agent.avgReward.toFixed(1)}`);
+            }
+            if (done < TOTAL) {
+              setTimeout(runChunk, YIELD_MS);
+            } else {
+              rlReadyRef.current = true;
+              setRlStatus(`RL ready · ${done} episodes · PPO 2×64`);
+              (eng as unknown as Record<string, unknown>).rlAgent = trainer.agent;
+            }
+          } catch {
+            setRlStatus("RL training skipped");
+          }
+        };
+        setTimeout(runChunk, 5000); // 5s delay so game loads first
+      } catch {
+        setRlStatus("RL unavailable");
+      }
+    };
+    // delayed start — don't block initial render
+    const timer = setTimeout(startTraining, 3000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, []);
+
+  // ---- pause: ESC or P toggles pause during a fight ----
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.code === "Escape" || e.code === "KeyP") && started && snap.phase === "fight") {
+        e.preventDefault();
+        setPaused((p) => !p);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [started, snap.phase]);
   useEffect(() => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
@@ -158,8 +222,12 @@ export default function ShadowFight() {
 
       // feed input
       eng.input = { ...keysRef.current };
+      eng.p2Input = { ...p2KeysRef.current };
 
-      eng.update(dt);
+      // skip game simulation when paused (but keep rendering)
+      if (!pausedRef.current) {
+        eng.update(dt);
+      }
 
       // drain VFX events -> fire audio stingers + combat intensity
       let bump = 0;
@@ -289,6 +357,7 @@ export default function ShadowFight() {
   };
 
   const start = useCallback(() => {
+    setPaused(false);
     eng.startMatch();
     setStarted(true);
     setSnap(snapFrom(eng));
@@ -350,14 +419,49 @@ export default function ShadowFight() {
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
       {/* mute toggle */}
-      <button
-        type="button"
-        onClick={toggleMute}
-        aria-label={muted ? "Unmute music" : "Mute music"}
-        className="absolute top-3 right-3 z-40 w-9 h-9 rounded-full border border-white/20 bg-black/50 backdrop-blur text-white/80 hover:bg-white/15 active:scale-95 transition flex items-center justify-center"
-      >
-        {muted ? <MuteIcon /> : <SoundIcon />}
-      </button>
+      {!hideGameUI && (
+        <button
+          type="button"
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute music" : "Mute music"}
+          className="absolute top-3 right-3 z-40 w-9 h-9 rounded-full border border-white/20 bg-black/50 backdrop-blur text-white/80 hover:bg-white/15 active:scale-95 transition flex items-center justify-center"
+        >
+          {muted ? <MuteIcon /> : <SoundIcon />}
+        </button>
+      )}
+
+      {/* pause button — visible during fight */}
+      {!hideGameUI && started && snap.phase === "fight" && (
+        <button
+          type="button"
+          onClick={() => setPaused((p) => !p)}
+          aria-label={paused ? "Resume" : "Pause"}
+          className="absolute top-3 right-14 z-40 w-9 h-9 rounded-full border border-white/20 bg-black/50 backdrop-blur text-white/80 hover:bg-white/15 active:scale-95 transition flex items-center justify-center text-xs"
+        >
+          {paused ? "▶" : "❚❚"}
+        </button>
+      )}
+
+      {/* pause overlay */}
+      {paused && started && snap.phase === "fight" && (
+        <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
+          <div className="text-center">
+            <h2 className="text-white text-5xl sm:text-7xl font-black tracking-tight mb-6">PAUSED</h2>
+            <button
+              onClick={() => setPaused(false)}
+              className="text-white/60 text-sm tracking-[0.3em] hover:text-white transition-colors duration-300"
+            >
+              RESUME ▶
+            </button>
+            <button
+              onClick={() => { setPaused(false); backToMenu(); }}
+              className="block mx-auto mt-4 text-white/20 text-xs tracking-[0.3em] hover:text-white/40 transition-colors duration-300"
+            >
+              QUIT TO MENU
+            </button>
+          </div>
+        </div>
+      )}
 
         {/* HUD top bar */}
         <div className="absolute top-0 left-0 right-0 z-20 p-2 sm:p-3 pointer-events-none">
@@ -461,7 +565,12 @@ export default function ShadowFight() {
 
       {/* Phase panel overlays */}
       {showMenu && view === "menu" && (
-        <MenuPanel onStart={start} onSelect={() => setView("select")} />
+        <MenuPanel
+          onStart={start}
+          onSelect={() => setView("select")}
+          onTwoPlayer={startTwoPlayer}
+          rlStatus={rlStatus}
+        />
       )}
       {showMenu && view === "select" && (
         <SelectPanel
@@ -630,9 +739,13 @@ function TouchControls({
 function MenuPanel({
   onStart,
   onSelect,
+  onTwoPlayer,
+  rlStatus,
 }: {
   onStart: () => void;
   onSelect: () => void;
+  onTwoPlayer: () => void;
+  rlStatus: string;
 }) {
   return (
     <div className="absolute inset-0 z-30 overflow-y-auto bg-gradient-to-b from-black/80 via-black/60 to-black/85 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 sm:p-8">
@@ -670,7 +783,20 @@ function MenuPanel({
         >
           Choose Your Prey
         </button>
+        <button
+          onClick={onTwoPlayer}
+          className="px-6 py-3 rounded-full border border-amber-500/30 bg-amber-950/30 text-amber-300/80 font-bold tracking-wide hover:bg-amber-900/40 hover:text-amber-200 active:scale-95 transition"
+        >
+          2-Player Versus
+        </button>
       </div>
+
+      {/* RL training status — auto-training in background */}
+      {rlStatus && (
+        <div className="mb-4 text-center">
+          <p className="text-violet-300/50 text-[10px] sm:text-xs tracking-wide">{rlStatus}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-500 max-w-3xl mx-auto">
         <Control keys="WASD / ←→" label="Move" />

@@ -230,6 +230,7 @@ export class GameEngine {
 
   opponentIndex = 0;
   sceneOverride: BackgroundId | null = null;
+  rlAgent: unknown = null; // set by the component when RL training completes
   phase: Phase = "menu";
   roundNo = 1;
   playerWins = 0;
@@ -268,6 +269,7 @@ export class GameEngine {
     roundhouse: false,
     roll: false,
     block: false,
+    super: false,
   };
 
   // for edge-triggered player attacks we mirror into fighter; fighter handles edges.
@@ -471,7 +473,16 @@ export class GameEngine {
   }
 
   private updateFight(dt: number, simDt: number) {
-    const enemyInput = this.ai.update(simDt, this.enemy, this.player);
+    // Use RL agent for the enemy when trained and opponent is level 5+,
+    // otherwise fall back to the rule-based AI
+    let enemyInput: InputState;
+    const rl = this.rlAgent as { act?: (s: number[], stoch: boolean) => { input: InputState }; getState?: (s: Fighter, o: Fighter) => number[] } | null;
+    if (rl && rl.act && rl.getState && this.opponentIndex >= 4) {
+      const state = rl.getState(this.enemy, this.player);
+      enemyInput = rl.act(state, true).input;
+    } else {
+      enemyInput = this.ai.update(simDt, this.enemy, this.player);
+    }
     this.player.update(simDt, this.input, this.enemy);
     this.enemy.update(simDt, enemyInput, this.player);
 
