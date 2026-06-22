@@ -44,27 +44,19 @@ function snapFrom(e: GameEngine): Snapshot {
 }
 
 const KEY_MAP: Record<string, keyof InputState> = {
-  ArrowLeft: "left",
-  KeyA: "left",
-  ArrowRight: "right",
-  KeyD: "right",
-  ArrowUp: "up",
-  KeyW: "up",
-  Space: "up",
-  ArrowDown: "down",
-  KeyS: "down",
-  KeyJ: "punch",
-  KeyZ: "punch",
-  KeyK: "kick",
-  KeyX: "kick",
-  KeyI: "roundhouse",
-  KeyU: "roundhouse",
-  KeyE: "roll",
-  KeyO: "roll",
-  KeyL: "block",
-  KeyC: "block",
-  ShiftLeft: "block",
-  ShiftRight: "block",
+  KeyA: "left", KeyD: "right", KeyW: "up", Space: "up", KeyS: "down",
+  KeyJ: "punch", KeyZ: "punch", KeyK: "kick", KeyX: "kick",
+  KeyI: "roundhouse", KeyU: "roundhouse", KeyE: "roll", KeyO: "roll",
+  KeyL: "block", KeyC: "block", ShiftLeft: "block", ShiftRight: "block",
+  KeyQ: "super",
+};
+const P2_KEY_MAP: Record<string, keyof InputState> = {
+  ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
+  Comma: "punch", Period: "kick", Slash: "roundhouse",
+  Semicolon: "roll", Quote: "block", BracketRight: "super",
+};
+const P1_ARROW_MAP: Record<string, keyof InputState> = {
+  ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
 };
 
 export default function ShadowFight() {
@@ -90,6 +82,19 @@ export default function ShadowFight() {
     roundhouse: false,
     roll: false,
     block: false,
+    super: false,
+  });
+  const p2KeysRef = useRef<InputState>({
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    punch: false,
+    kick: false,
+    roundhouse: false,
+    roll: false,
+    block: false,
+    super: false,
   });
 
   const [snap, setSnap] = useState<Snapshot>(() => snapFrom(eng));
@@ -315,18 +320,38 @@ export default function ShadowFight() {
   // ---- keyboard ----
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      const k = KEY_MAP[e.code];
-      if (k) {
+      const isArrow = e.code in P1_ARROW_MAP;
+      if (eng.twoPlayer && isArrow) {
         e.preventDefault();
-        keysRef.current[k] = true;
+        p2KeysRef.current[P1_ARROW_MAP[e.code]] = true;
+        return;
       }
+      const k = KEY_MAP[e.code];
+      if (k) { e.preventDefault(); keysRef.current[k] = true; return; }
+      if (!eng.twoPlayer && isArrow) {
+        e.preventDefault();
+        keysRef.current[P1_ARROW_MAP[e.code]] = true;
+        return;
+      }
+      const k2 = P2_KEY_MAP[e.code];
+      if (k2 && !isArrow) { e.preventDefault(); p2KeysRef.current[k2] = true; }
     };
     const up = (e: KeyboardEvent) => {
-      const k = KEY_MAP[e.code];
-      if (k) {
+      const isArrow = e.code in P1_ARROW_MAP;
+      if (eng.twoPlayer && isArrow) {
         e.preventDefault();
-        keysRef.current[k] = false;
+        p2KeysRef.current[P1_ARROW_MAP[e.code]] = false;
+        return;
       }
+      const k = KEY_MAP[e.code];
+      if (k) { e.preventDefault(); keysRef.current[k] = false; return; }
+      if (!eng.twoPlayer && isArrow) {
+        e.preventDefault();
+        keysRef.current[P1_ARROW_MAP[e.code]] = false;
+        return;
+      }
+      const k2 = P2_KEY_MAP[e.code];
+      if (k2 && !isArrow) { e.preventDefault(); p2KeysRef.current[k2] = false; }
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -341,6 +366,19 @@ export default function ShadowFight() {
         roundhouse: false,
         roll: false,
         block: false,
+        super: false,
+      };
+      p2KeysRef.current = {
+        left: false,
+        right: false,
+        up: false,
+        down: false,
+        punch: false,
+        kick: false,
+        roundhouse: false,
+        roll: false,
+        block: false,
+        super: false,
       };
     };
     window.addEventListener("blur", blur);
