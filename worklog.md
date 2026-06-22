@@ -371,3 +371,25 @@ Stage Summary:
 - fist() helper added with radius 5.5·wa (scaled by body type), larger than the forearm taper end (5·wa) so it reads as a knuckle.
 - Back hand was previously missing its filled cap entirely; now fixed.
 - Game verified running end-to-end via Agent Browser with no errors.
+
+---
+Task ID: DOC-3
+Agent: main
+Task: Fix hands still appearing as tiny dots / unfilled — make fists clearly visible.
+
+Work Log:
+- Used VLM (z-ai vision) to analyze screenshots. VLM confirmed: "hands are not clearly visible as solid black circles/blobs; the arms taper to thin points with no distinct hand/fist. The hands are tiny dots, far too small to resemble actual fists."
+- Root cause: fist radius was 5.5·wa (only 5.5px for lean), barely bigger than the forearm taper end (5·wa). The hand was indistinguishable from the forearm tapering to a point.
+- Fix in render.ts drawFighter():
+  - Back arm: forearm taper end 5·wa → 6·wa; elbow joint 4 → 8·wa; fist 5.5·wa → 9·wa.
+  - Front arm: same changes (forearm 5·wa → 6·wa, elbow 4 → 8·wa, fist 5.5·wa → 9·wa).
+  - The fist (9·wa) is now 50% bigger than the forearm taper end (6·wa), so it reads as a distinct knuckle/fist.
+- Also fixed feet: foot() ellipse was w*0.6 × 3.5 (too thin). Changed to w*0.85 × w*0.45 (proportional, solid foot shape).
+- Verified via VLM: "The ends of the arms (hands) are clearly visible as solid black fists/blobs. They are not tiny dots—each hand has a distinct, rounded, solid shape." Feet also confirmed visible as solid foot shapes.
+- No console/runtime errors.
+
+Stage Summary:
+- Fists now radius 9·wa (was 5.5·wa) — clearly visible solid black hands.
+- Forearm taper end 6·wa + elbow joint 8·wa — smoother arm taper, no notch at elbow.
+- Feet now proportional ellipses (w*0.85 × w*0.45) instead of thin lines.
+- Both hands (back + front) and both feet render as solid filled silhouettes, verified by VLM.
