@@ -7,6 +7,8 @@ import { GameAudio } from "@/lib/game/audio";
 import { PostFX } from "@/lib/game/postfx";
 import type { BackgroundId, InputState, Phase } from "@/lib/game/types";
 import DestructionEnding from "./DestructionEnding";
+import RLTrainingPanel from "./RLTrainingPanel";
+import { rlTrainer } from "@/lib/game/rl";
 
 interface Snapshot {
   phase: Phase;
@@ -78,6 +80,8 @@ export default function ShadowFight() {
   const [view, setView] = useState<"menu" | "select">("menu");
   const [selOpp, setSelOpp] = useState(0);
   const [selScene, setSelScene] = useState<BackgroundId | "auto">("auto");
+  const [showTraining, setShowTraining] = useState(false);
+  const [rlTick, setRlTick] = useState(0); // forces re-render to update RL badge
 
   const keysRef = useRef<InputState>({
     left: false,
@@ -418,6 +422,24 @@ export default function ShadowFight() {
     if (!muted) void audio.start();
   }, [eng, audio, muted]);
 
+  // Fight the RL Ghost — an opponent driven by the trained PPO policy.
+  const startRLGhost = useCallback(() => {
+    setPaused(false);
+    eng.startRLGhost();
+    setStarted(true);
+    setSnap(snapFrom(eng));
+    if (!muted) void audio.start();
+  }, [eng, audio, muted]);
+
+  // Poll the RL trainer every 2s while on the menu so the badge stays fresh
+  // (training runs in the background and episodes tick up asynchronously).
+  useEffect(() => {
+    const id = setInterval(() => setRlTick((t) => t + 1), 2000);
+    return () => clearInterval(id);
+  }, []);
+  // reference rlTick so the linter doesn't complain; it drives re-renders
+  void rlTick;
+
   const toggleMute = useCallback(() => {
     setMuted((m) => {
       const nm = !m;
@@ -597,7 +619,14 @@ export default function ShadowFight() {
           onSelect={() => setView("select")}
           onTwoPlayer={startTwoPlayer}
           onSkipToEnding={skipToEnding}
+          onRLGhost={startRLGhost}
+          onOpenTraining={() => setShowTraining(true)}
+          rlReady={rlTrainer.agent.isTrained}
+          rlEpisodes={rlTrainer.agent.episodes}
         />
+      )}
+      {showMenu && showTraining && (
+        <RLTrainingPanel onClose={() => setShowTraining(false)} />
       )}
       {showMenu && view === "select" && (
         <SelectPanel
@@ -796,11 +825,19 @@ function MenuPanel({
   onSelect,
   onTwoPlayer,
   onSkipToEnding,
+  onRLGhost,
+  onOpenTraining,
+  rlReady,
+  rlEpisodes,
 }: {
   onStart: () => void;
   onSelect: () => void;
   onTwoPlayer: () => void;
   onSkipToEnding: () => void;
+  onRLGhost: () => void;
+  onOpenTraining: () => void;
+  rlReady: boolean;
+  rlEpisodes: number;
 }) {
   return (
     <div className="absolute inset-0 z-30 overflow-y-auto bg-gradient-to-b from-black/80 via-black/60 to-black/85 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 sm:p-8">
@@ -825,7 +862,7 @@ function MenuPanel({
         Cut them down. Claim their seals. Open the gate.
       </p>
 
-      <div className="text-center flex flex-wrap gap-3 justify-center mb-7">
+      <div className="text-center flex flex-wrap gap-3 justify-center mb-4">
         <button
           onClick={onStart}
           className="px-8 py-3 rounded-full bg-gradient-to-r from-rose-700 via-red-600 to-rose-800 text-white font-black tracking-widest text-lg hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-rose-900/60 border border-rose-500/30"
@@ -843,6 +880,33 @@ function MenuPanel({
           className="px-6 py-3 rounded-full border border-amber-500/30 bg-amber-950/30 text-amber-300/80 font-bold tracking-wide hover:bg-amber-900/40 hover:text-amber-200 active:scale-95 transition"
         >
           2-Player Versus
+        </button>
+      </div>
+
+      {/* RL Ghost + Training row */}
+      <div className="flex flex-wrap gap-3 justify-center mb-6">
+        <button
+          onClick={onRLGhost}
+          className="group px-5 py-2.5 rounded-full border border-violet-500/40 bg-violet-950/40 text-violet-200 font-bold tracking-wide hover:bg-violet-900/50 hover:text-violet-100 active:scale-95 transition flex items-center gap-2"
+        >
+          <span className="text-lg">👻</span>
+          <span>FIGHT RL GHOST</span>
+          {rlReady ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-200 border border-emerald-400/40">
+              {rlEpisodes} eps
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-500/30 text-zinc-300 border border-zinc-400/40">
+              untrained
+            </span>
+          )}
+        </button>
+        <button
+          onClick={onOpenTraining}
+          className="px-5 py-2.5 rounded-full border border-sky-500/30 bg-sky-950/30 text-sky-300/80 font-bold tracking-wide hover:bg-sky-900/40 hover:text-sky-200 active:scale-95 transition flex items-center gap-2"
+        >
+          <span className="text-lg">🧠</span>
+          <span>RL TRAINING LAB</span>
         </button>
       </div>
 

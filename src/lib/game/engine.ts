@@ -2,6 +2,7 @@
 
 import { Fighter, GROUND_Y, STAGE_LEFT, STAGE_RIGHT } from "./fighter";
 import { EnemyAI } from "./ai";
+import { RLController, rlTrainer } from "./rl";
 import type {
   BackgroundId,
   FloatingText,
@@ -213,6 +214,28 @@ export const OPPONENTS: OpponentDef[] = [
   },
 ];
 
+// The RL Ghost — a hidden 9th opponent driven by the trained PPO policy.
+// Not part of the story tournament; only accessible via the menu's
+// "Fight RL Ghost" button. Its stats mirror Titan so the fight is fair
+// regardless of how well-trained the policy is.
+export const RL_GHOST: OpponentDef = {
+  name: "The Ghost",
+  title: "The Learned Shadow",
+  rim: "#a78bfa",
+  hp: 160,
+  damageMul: 1.1,
+  speedMul: 1.05,
+  aggression: 0.8,
+  blockChance: 0.5,
+  reaction: 0.15,
+  combo: 3,
+  bg: "moon",
+  bodyType: "lean",
+  weapon: "fists",
+  story:
+    "A shadow born of a thousand self-play battles. It has learned what you will do before you do it.",
+};
+
 export interface Announcement {
   main: string;
   sub?: string;
@@ -246,7 +269,10 @@ export class GameEngine {
 
   opponentIndex = 0;
   sceneOverride: BackgroundId | null = null;
-  rlAgent: unknown = null; // set by the component when RL training completes
+  // When true, the enemy is driven by the trained RL policy (RLController)
+  // instead of the rule-based EnemyAI. Set by startRLGhost().
+  rlMode = false;
+  rlController: RLController | null = null;
   phase: Phase = "menu";
   roundNo = 1;
   playerWins = 0;
@@ -357,6 +383,7 @@ export class GameEngine {
     this.opponentIndex = Math.max(0, Math.min(OPPONENTS.length - 1, index));
     this.sceneOverride = bg ?? null;
     this.twoPlayer = false;
+    this.rlMode = false;
     this.ai = new EnemyAI(OPPONENTS[this.opponentIndex]);
     this.enemy = this.makeEnemy(this.opponentIndex);
     this.playerWins = 0;
@@ -370,6 +397,7 @@ export class GameEngine {
   // (mirrored stats) instead of an AI opponent. Plays on the current scene.
   startTwoPlayer() {
     this.twoPlayer = true;
+    this.rlMode = false;
     this.sceneOverride = this.sceneOverride ?? "sunset";
     this.enemy = new Fighter({
       x: 600,
@@ -388,6 +416,45 @@ export class GameEngine {
     this.roundNo = 1;
     this.maxCombo = 0;
     this.startRound();
+  }
+
+  // Fight the RL Ghost — an opponent driven by the trained PPO policy.
+  // If no policy is trained yet, falls back to a strong rule-based AI so the
+  // mode is always playable. Uses the shared rlTrainer singleton's agent.
+  startRLGhost() {
+    this.twoPlayer = false;
+    this.rlMode = false;
+    this.rlMode = true;
+    this.sceneOverride = RL_GHOST.bg;
+    this.enemy = new Fighter({
+      x: 600,
+      isPlayer: false,
+      facing: -1,
+      maxHp: RL_GHOST.hp,
+      rim: RL_GHOST.rim,
+      name: RL_GHOST.name,
+      damageMul: RL_GHOST.damageMul,
+      speedMul: RL_GHOST.speedMul,
+      blade: false,
+      bodyType: RL_GHOST.bodyType,
+      weapon: RL_GHOST.weapon,
+    });
+    // Always create a controller backed by the shared (possibly-trained) agent.
+    // If the agent has no training yet, the policy is random — but still playable.
+    this.rlController = new RLController(rlTrainer.agent);
+    this.rlController.reset();
+    // Keep a rule-based AI as fallback for the announce/intro text
+    this.ai = new EnemyAI(RL_GHOST);
+    this.playerWins = 0;
+    this.enemyWins = 0;
+    this.roundNo = 1;
+    this.maxCombo = 0;
+    this.startRound();
+  }
+
+  // Whether the RL Ghost is ready to fight with a trained policy.
+  get rlReady(): boolean {
+    return rlTrainer.agent.isTrained;
   }
 
   // Skip straight to the destruction ending: jump to the final opponent,
@@ -418,6 +485,7 @@ export class GameEngine {
       return;
     }
     this.twoPlayer = false;
+    this.rlMode = false;
     this.ai = new EnemyAI(OPPONENTS[this.opponentIndex]);
     this.enemy = this.makeEnemy(this.opponentIndex);
     this.playerWins = 0;
@@ -429,6 +497,7 @@ export class GameEngine {
   // Retry the current opponent from round 1 (after a game over).
   retryMatch() {
     this.twoPlayer = false;
+    this.rlMode = false;
     this.ai = new EnemyAI(OPPONENTS[this.opponentIndex]);
     this.enemy = this.makeEnemy(this.opponentIndex);
     this.playerWins = 0;
@@ -443,6 +512,7 @@ export class GameEngine {
     this.player.reset(360, 1);
     this.enemy.reset(600, -1);
     if (!this.twoPlayer) this.ai.reset();
+    if (this.rlMode && this.rlController) this.rlController.reset();
     this.roundTimer = ROUND_TIME;
     this.particles = [];
     this.texts = [];
@@ -458,9 +528,11 @@ export class GameEngine {
     // Round 1 of a fresh match: a boss-intro beat — announce the opponent
     // by name + title and snap the camera into a slow zoom-out + flash.
     if (this.roundNo === 1 && !this.twoPlayer) {
+      // In RL mode, announce the Ghost; otherwise use the story opponent.
+      const ann = this.rlMode ? RL_GHOST : this.opponent;
       this.setAnnounce(
-        this.opponent.name.toUpperCase(),
-        this.opponent.title,
+        ann.name.toUpperCase(),
+        ann.title,
         2.4,
         true,
       );
@@ -556,11 +628,18 @@ export class GameEngine {
   }
 
   private updateFight(dt: number, simDt: number) {
-    // In two-player mode the enemy is driven by the second player's input
-    // (p2Input); otherwise the AI controller produces the input each frame.
-    const enemyInput = this.twoPlayer
-      ? this.p2Input
-      : this.ai.update(simDt, this.enemy, this.player);
+    // Enemy input source depends on mode:
+    //  - two-player: second human's p2Input
+    //  - rlMode: trained PPO policy via RLController
+    //  - default: rule-based EnemyAI
+    let enemyInput: InputState;
+    if (this.twoPlayer) {
+      enemyInput = this.p2Input;
+    } else if (this.rlMode && this.rlController) {
+      enemyInput = this.rlController.getInput(this.enemy, this.player);
+    } else {
+      enemyInput = this.ai.update(simDt, this.enemy, this.player);
+    }
     this.player.update(simDt, this.input, this.enemy);
     this.enemy.update(simDt, enemyInput, this.player);
 
@@ -788,6 +867,23 @@ export class GameEngine {
   }
 
   private afterRoundEnd() {
+    // RL Ghost mode: the match ends after a win or loss (no next opponent).
+    if (this.rlMode) {
+      const ghostName = RL_GHOST.name;
+      if (this.playerWins >= ROUNDS_TO_WIN) {
+        this.phase = "match_end";
+        this.phaseTimer = 0;
+        this.setAnnounce("VICTORY", `${ghostName} defeated`, 999, true);
+      } else if (this.enemyWins >= ROUNDS_TO_WIN) {
+        this.phase = "game_over";
+        this.phaseTimer = 0;
+        this.setAnnounce("DEFEATED", `${ghostName} bested you`, 999, true);
+      } else {
+        this.roundNo += 1;
+        this.startRound();
+      }
+      return;
+    }
     if (this.playerWins >= ROUNDS_TO_WIN) {
       // player wins the match -> next opponent or champion
       if (this.opponentIndex >= OPPONENTS.length - 1) {

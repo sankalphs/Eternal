@@ -444,3 +444,48 @@ Stage Summary:
 - Singleton rlTrainer exported for app-wide use.
 - Module is STANDALONE — not wired into the active game (per earlier user request). Can be activated by importing rlTrainer + RLController.
 - Verified: all layers update, training improves reward, no mode collapse.
+
+---
+Task ID: RL-2
+Agent: main
+Task: Wire the RL agent into the game — Option B (RL Ghost opponent) + Option C (Training Lab UI).
+
+Work Log:
+ENGINE (engine.ts):
+- Imported RLController + rlTrainer from rl.ts.
+- Added RL_GHOST opponent definition (9th opponent, violet rim, "The Learned Shadow", moon arena, Titan-tier stats).
+- Added rlMode + rlController fields to GameEngine (replaced the unused rlAgent field).
+- Added startRLGhost() method — spawns the Ghost fighter and creates an RLController backed by the shared rlTrainer.agent.
+- Added rlReady getter.
+- Updated updateFight() to use RLController.getInput() for the enemy when rlMode is true (3-way branch: two-player / RL / rule-based AI).
+- Updated startRound() to reset the RLController each round and announce "THE GHOST" in RL mode.
+- Updated afterRoundEnd() to handle RL mode — match ends after win/loss (no next-opponent progression).
+- Reset rlMode=false in all match-start methods (startMatch, startMatchWith, startTwoPlayer, nextOpponent, retryMatch).
+
+COMPONENT (ShadowFight.tsx):
+- Imported RLTrainingPanel + rlTrainer.
+- Added showTraining state + rlTick polling state (2s interval to refresh the RL badge).
+- Added startRLGhost callback.
+- Added "👻 FIGHT RL GHOST" button to MenuPanel (violet theme) with a badge showing episode count or "untrained".
+- Added "🧠 RL TRAINING LAB" button to MenuPanel (sky theme).
+- Passed onRLGhost, onOpenTraining, rlReady, rlEpisodes props to MenuPanel.
+- Rendered RLTrainingPanel when showTraining is true.
+
+NEW COMPONENT (RLTrainingPanel.tsx):
+- Full training dashboard with: stats grid (episodes, avg reward, value loss, entropy), progress bar (episodes/target), SVG reward chart (last 100 episodes, reward + value loss lines), training controls (TRAIN N EPISODES / TRAIN 500 / TRAIN TO TARGET / STOP / CLEAR MODEL), batch size selector (25/50/100/250), info panel explaining PPO.
+- Polls rlTrainer every 500ms for live updates.
+- Calls rlTrainer.trainBatch() which yields to the UI thread.
+
+VERIFICATION (Agent Browser + VLM):
+- Menu shows both new buttons (FIGHT RL GHOST, RL TRAINING LAB).
+- Training Lab opens: ran 25 episodes, stats show episodes=25/2500, avgReward=-18.3, valueLoss=0.831, entropy=2.300, reward chart rendered with blue reward line + yellow value loss line.
+- Badge on FIGHT RL GHOST button updated to "25 eps".
+- RL Ghost fight starts: boss intro "THE GHOST / The Learned Shadow" on moonlit arena, timer counts down (60→53), both fighters actively engaged in combat, Ghost controlled by trained PPO policy.
+- 33.3% black pixels on canvas (fighters + UI rendering correctly).
+- No console/runtime errors.
+
+Stage Summary:
+- Option B (RL Ghost opponent): fully wired — 9th opponent driven by trained PPO policy via RLController, accessible from menu, with proper match flow (intro/round/end) and boss announcement.
+- Option C (Training Lab): full UI panel with live stats, reward chart, batch controls, progress bar, and info. Background training yields to UI thread; auto-saves to localStorage.
+- The 8 story opponents still use the rule-based EnemyAI (unchanged). RL Ghost coexists as a separate mode.
+- Both features verified end-to-end via Agent Browser + VLM.
