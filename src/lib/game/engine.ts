@@ -473,16 +473,7 @@ export class GameEngine {
   }
 
   private updateFight(dt: number, simDt: number) {
-    // Use RL agent for the enemy when trained and opponent is level 5+,
-    // otherwise fall back to the rule-based AI
-    let enemyInput: InputState;
-    const rl = this.rlAgent as { act?: (s: number[], stoch: boolean) => { input: InputState }; getState?: (s: Fighter, o: Fighter) => number[] } | null;
-    if (rl && rl.act && rl.getState && this.opponentIndex >= 4) {
-      const state = rl.getState(this.enemy, this.player);
-      enemyInput = rl.act(state, true).input;
-    } else {
-      enemyInput = this.ai.update(simDt, this.enemy, this.player);
-    }
+    const enemyInput = this.ai.update(simDt, this.enemy, this.player);
     this.player.update(simDt, this.input, this.enemy);
     this.enemy.update(simDt, enemyInput, this.player);
 

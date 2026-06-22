@@ -102,57 +102,6 @@ export default function ShadowFight() {
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
-  const [rlStatus, setRlStatus] = useState("Initializing RL agent...");
-  const [rlEpisodes, setRlEpisodes] = useState(0);
-  const trainerRef = useRef<{ agent: { avgReward: number; episodes: number } } | null>(null);
-  const rlReadyRef = useRef(false);
-
-  // ---- RL: auto-train in background (lazy-loaded, starts after 5s delay) ----
-  useEffect(() => {
-    let cancelled = false;
-    const startTraining = async () => {
-      try {
-        const mod = await import("@/lib/game/rl");
-        if (cancelled) return;
-        const trainer = new mod.SelfPlayTrainer();
-        trainerRef.current = trainer;
-
-        const TOTAL = 2500;
-        const BATCH = 3;
-        const YIELD_MS = 100;
-        let done = 0;
-
-        const runChunk = () => {
-          if (cancelled || rlReadyRef.current) return;
-          try {
-            for (let i = 0; i < BATCH && done < TOTAL; i++) {
-              trainer.runEpisode();
-              done++;
-            }
-            setRlEpisodes(done);
-            if (done % 100 === 0 || done >= TOTAL) {
-              setRlStatus(`Training RL... ${done}/${TOTAL} · avg: ${trainer.agent.avgReward.toFixed(1)}`);
-            }
-            if (done < TOTAL) {
-              setTimeout(runChunk, YIELD_MS);
-            } else {
-              rlReadyRef.current = true;
-              setRlStatus(`RL ready · ${done} episodes · PPO 2×64`);
-              (eng as unknown as Record<string, unknown>).rlAgent = trainer.agent;
-            }
-          } catch {
-            setRlStatus("RL training skipped");
-          }
-        };
-        setTimeout(runChunk, 5000); // 5s delay so game loads first
-      } catch {
-        setRlStatus("RL unavailable");
-      }
-    };
-    // delayed start — don't block initial render
-    const timer = setTimeout(startTraining, 3000);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, []);
 
   // ---- pause: ESC or P toggles pause during a fight ----
   useEffect(() => {
@@ -615,7 +564,6 @@ export default function ShadowFight() {
           onStart={start}
           onSelect={() => setView("select")}
           onTwoPlayer={startTwoPlayer}
-          rlStatus={rlStatus}
         />
       )}
       {showMenu && view === "select" && (
@@ -786,12 +734,10 @@ function MenuPanel({
   onStart,
   onSelect,
   onTwoPlayer,
-  rlStatus,
 }: {
   onStart: () => void;
   onSelect: () => void;
   onTwoPlayer: () => void;
-  rlStatus: string;
 }) {
   return (
     <div className="absolute inset-0 z-30 overflow-y-auto bg-gradient-to-b from-black/80 via-black/60 to-black/85 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 sm:p-8">
@@ -836,13 +782,6 @@ function MenuPanel({
           2-Player Versus
         </button>
       </div>
-
-      {/* RL training status — auto-training in background */}
-      {rlStatus && (
-        <div className="mb-4 text-center">
-          <p className="text-violet-300/50 text-[10px] sm:text-xs tracking-wide">{rlStatus}</p>
-        </div>
-      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-zinc-500 max-w-3xl mx-auto">
         <Control keys="WASD / ←→" label="Move" />
