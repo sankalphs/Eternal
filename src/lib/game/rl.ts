@@ -158,6 +158,30 @@ function applyGrads(l: Layer, lr: number) {
   }
 }
 
+// Global gradient-norm clipping across all layers. Standard PPO stabilizer —
+// prevents destructive updates when the per-batch gradient is unusually large.
+// Clips in-place so the caller can then applyGrads normally.
+function clipGlobalNorm(layers: Layer[], maxNorm: number): number {
+  let totalSq = 0;
+  for (const l of layers) {
+    for (let i = 0; i < l.gw.length; i++) {
+      totalSq += l.gb[i] * l.gb[i];
+      for (let j = 0; j < l.gw[i].length; j++) totalSq += l.gw[i][j] * l.gw[i][j];
+    }
+  }
+  const totalNorm = Math.sqrt(totalSq);
+  if (totalNorm > maxNorm && totalNorm > 0) {
+    const scale = maxNorm / totalNorm;
+    for (const l of layers) {
+      for (let i = 0; i < l.gw.length; i++) {
+        l.gb[i] *= scale;
+        for (let j = 0; j < l.gw[i].length; j++) l.gw[i][j] *= scale;
+      }
+    }
+  }
+  return totalNorm;
+}
+
 // ---------------------------------------------------------------------------
 // Running statistics for observation & reward normalization (PPO standard).
 // Uses Welford's algorithm for numerical stability. Normalizing observations
@@ -224,7 +248,7 @@ class RunningStats {
 // ---------------------------------------------------------------------------
 
 const STATE_SIZE = 20;
-const HIDDEN = 64;
+const HIDDEN = 128;
 const NUM_ACTIONS = 10;
 const ACTIONS: (keyof InputState | "none")[] = [
   "none", "left", "right", "up", "down",
@@ -275,10 +299,13 @@ export class PPOAgent {
   gamma = 0.99;
   lambda = 0.95;
   clip = 0.2;
-  lr = 3e-4;
-  entropyCoef = 0.01;
+  lr = 3e-3;           // 3× higher than v4; cumulative logit update now ~0.36 over 5000 eps
+  entropyCoef = 0.01;  // fixed-sign: now a true BONUS (maximizes H)
   valueClip = 0.2;
   epochs = 4;
+  targetKL = 0.03;     // early-stop epochs if KL(old||new) exceeds this
+  gradClipNorm = 0.5;  // global gradient-norm clip (safety for higher LR)
+  minBufferSize = 2048; // collect ≥2048 transitions before each train() call
 
   // Running normalization for observations (per-dim) and rewards (scalar).
   // This is the #1 stabilizer for PPO — normalizes the network's input space
@@ -362,19 +389,19 @@ export class PPOAgent {
     return { action, input: actionToInput(action), logProb: lp, value };
   }
 
-  // Store a transition. Rewards are scaled and clipped to keep them in a
-  // learnable range for the value function and prevent occasional huge
-  // spikes (from opponent-sync mismatches) from destabilizing training.
+  // Store a transition. Rewards are scaled to keep them in a learnable range.
+  // Damage rewards (±15) scale to ±0.75, KO bonus (±15) scales to ±0.75.
+  // Clip at ±1.5 to prevent rare huge spikes from destabilizing the value fn.
   store(s: number[], a: number, r: number, lp: number, v: number, d: boolean) {
-    // Fixed scale + clip: typical per-step reward is ±2, KOs are ±15.
-    // Divide by 10 → ±0.2 typical, ±1.5 for KOs. Clip at ±3 for safety.
-    const rs = Math.max(-3, Math.min(3, r / 10));
+    const rs = Math.max(-1.5, Math.min(1.5, r / 20));
     this.buf.push({ s, a, r: rs, lp, v, d });
   }
 
   // ---- PPO update with full backpropagation ----
-  train(): { policyLoss: number; valueLoss: number; entropy: number } {
-    if (this.buf.length < 16) return { policyLoss: 0, valueLoss: 0, entropy: 0 };
+  // Returns null if the buffer hasn't reached minBufferSize yet (caller should
+  // keep collecting transitions). This enforces a proper PPO batch size.
+  train(): { policyLoss: number; valueLoss: number; entropy: number } | null {
+    if (this.buf.length < this.minBufferSize) return null;
     const n = this.buf.length;
 
     // ---- Compute GAE advantages and returns ----
@@ -410,6 +437,7 @@ export class PPOAgent {
       let epochPL = 0;
       let epochVL = 0;
       let epochEnt = 0;
+      let epochKL = 0;
 
       for (let i = 0; i < n; i++) {
         const tr = this.buf[i];
@@ -452,9 +480,24 @@ export class PPOAgent {
         const dzPolicy = new Array(NUM_ACTIONS).fill(0);
         for (let j = 0; j < NUM_ACTIONS; j++) {
           const kronecker = j === tr.a ? 1 : 0;
-          // dL_policy/dz = -gradCoeff * (δ - π) - entropyCoef * dH/dz
-          // (we SUBTRACT entropy gradient because we want to MAXIMIZE entropy)
-          dzPolicy[j] = -gradCoeff * (kronecker - probs[j]) - this.entropyCoef * entropyGrad[j];
+          // Loss = -surrogate + entropyCoef * (-H)  [we MAXIMIZE H → minimize -H]
+          // dL/dz = -gradCoeff * (δ - π) + entropyCoef * dH/dz
+          // entropyGrad[j] = π_j·(log π_j + H) = -dH/dz_j  (verified numerically)
+          // So dH/dz_j = -entropyGrad[j], and the entropy term = entropyCoef * (-entropyGrad[j])
+          //             = -entropyCoef * entropyGrad[j]  ... WAIT that's the OLD (buggy) form.
+          //
+          // Re-derive carefully:
+          //   H = -Σ π log π  (we want to MAXIMIZE)
+          //   dH/dz_j = -π_j (log π_j + H)   [verified by finite-diff]
+          //   Loss_entropy = -entropyCoef * H   (minimize → maximize H)
+          //   dLoss_entropy/dz_j = -entropyCoef * dH/dz_j = -entropyCoef * (-π_j(log π_j + H))
+          //                     = +entropyCoef * π_j (log π_j + H)
+          //                     = +entropyCoef * entropyGrad[j]   ← since entropyGrad = π(log π + H)
+          //
+          // So the CORRECT sign is +entropyCoef * entropyGrad[j] (ADDS to the loss gradient).
+          // The old code used `-` which gave -entropyCoef*entropyGrad = -entropyCoef*π(log π+H)
+          //   = +entropyCoef * dH/dz = gradient of +entropyCoef*H → MINIMIZES H (penalty). BUG.
+          dzPolicy[j] = -gradCoeff * (kronecker - probs[j]) + this.entropyCoef * entropyGrad[j];
         }
 
         // Backprop policy: pOut → pL2 → pL1
@@ -492,33 +535,55 @@ export class PPOAgent {
         epochPL += useClipped ? surr2 : surr1;
         epochVL += vLoss;
         epochEnt += entropy;
+        // KL(old||new) = Σ π_old · log(π_old / π_new). We approximate π_old via
+        // the stored log-prob (exp(tr.lp) = π_old(a)). For a per-sample KL we'd
+        // need the full old distribution; instead we use the ratio-based
+        // approximation KL ≈ 0.5 · (log ratio)² which is exact to 2nd order.
+        const logRatio = newLp - tr.lp;
+        epochKL += 0.5 * logRatio * logRatio;
       }
 
-      // Apply gradients (averaged over batch)
-      const invN = 1 / n;
-      // Scale gradients by 1/n before applying
+      // Apply gradients. We do NOT divide by n (batch size) — that would make
+      // the effective LR scale as lr/n, which is catastrophically small for
+      // n=2048. Instead we clip the global gradient norm to 0.5, which provides
+      // the safety that ÷n was trying (poorly) to provide. This matches the
+      // behavior of Adam-based PPO (step size ~lr, not ~lr/n).
+      // Clip BEFORE scaling so the clip threshold is in raw-gradient units.
+      const gradNorm = clipGlobalNorm(
+        [this.pL1, this.pL2, this.pOut, this.vL1, this.vL2, this.vOut],
+        this.gradClipNorm,
+      );
+      void gradNorm;
       for (const l of [this.pL1, this.pL2, this.pOut, this.vL1, this.vL2, this.vOut]) {
-        for (let i = 0; i < l.gw.length; i++) {
-          l.gb[i] *= invN;
-          for (let j = 0; j < l.gw[i].length; j++) l.gw[i][j] *= invN;
-        }
         applyGrads(l, this.lr);
       }
 
+      const invN = 1 / n;
       tpl = epochPL * invN;
       tvl = epochVL * invN;
       tent = epochEnt * invN;
+      const meanKL = epochKL * invN;
+
+      // KL early stopping — if the policy moved too far from old, stop epochs.
+      if (meanKL > this.targetKL && ep < this.epochs - 1) {
+        break;
+      }
     }
 
-    this.episodes++;
-    this.totalReward += this.buf.reduce((s, t) => s + t.r, 0);
-    this.avgReward = this.totalReward / this.episodes;
+    // episodes++ and avgReward are now managed by the trainer (one increment
+    // per PPO update, not per call to train()).
+    this.lastBufSum = this.buf.reduce((s, t) => s + t.r, 0);
     this.lastPolicyLoss = tpl;
     this.lastValueLoss = tvl;
     this.lastEntropy = tent;
     this.buf = [];
     return { policyLoss: tpl, valueLoss: tvl, entropy: tent };
   }
+
+  // Buffer length accessor (trainer checks this to decide when to train)
+  get bufLen(): number { return this.buf.length; }
+  // Sum of rewards in the current buffer (for stats)
+  lastBufSum = 0;
 
   get isTrained(): boolean {
     return this.episodes > 0;
@@ -678,12 +743,20 @@ function applySimAction(
     return;
   }
 
-  // Rolling dodge: i-frames for 5 steps, moves toward opponent, 15-step cooldown
+  // Rolling dodge: i-frames, but only moves in the HELD direction (not auto-
+  // toward opponent). This makes it a pure dodge, not an approach tool.
   if (input.roll && selfRoll <= 0 && !selfAir && selfCd <= 0) {
-    const rollDir = input.left ? -1 : input.right ? 1 : dirToOpp;
-    const newX = Math.max(80, Math.min(880, selfX + rollDir * 20));
-    if (isP1) { s.x1 = newX; s.rollCd1 = 15; } else { s.x2 = newX; s.rollCd2 = 15; }
-    return; // can't do anything else this step
+    let rollDir = 0;
+    if (input.left) rollDir = -1;
+    else if (input.right) rollDir = 1;
+    if (rollDir !== 0) {
+      const newX = Math.max(80, Math.min(880, selfX + rollDir * 12));
+      if (isP1) { s.x1 = newX; s.rollCd1 = 25; } else { s.x2 = newX; s.rollCd2 = 25; }
+    } else {
+      // roll in place (just i-frames, no movement)
+      if (isP1) s.rollCd1 = 25; else s.rollCd2 = 25;
+    }
+    return;
   }
 
   // Jump: go airborne for 8 steps, can steer horizontally
@@ -793,11 +866,83 @@ function computeReward(
     reward -= 0.05;
   }
 
+  // Idle penalty: doing nothing when the opponent is alive and close wastes
+  // time. Encourages active engagement. (Only applies when not blocking,
+  // not stunned, and opponent is still standing.)
+  const selfStunAfter = isP1 ? sAfter.stun1 : sAfter.stun2;
+  const didNothing =
+    oppHpAfter > 0 &&
+    selfStunAfter <= 0 &&
+    !selfBlock &&
+    oppHpLost === 0 &&
+    selfHpLost === 0;
+  if (didNothing) reward -= 0.1;
+
   // KO bonus / penalty (terminal) — kept moderate to avoid value-loss spikes
   if (oppHpAfter <= 0) reward += 15;
   if (selfHpAfter <= 0) reward -= 15;
 
   return reward;
+}
+
+// ---------------------------------------------------------------------------
+// Random opponent — a fixed weak opponent for training.
+// Picks actions randomly with a slight bias toward approaching the player.
+// This is NOT trained; it's a stationary target that gives the agent a clear
+// learning signal (approach + attack = win).
+// ---------------------------------------------------------------------------
+
+function randomOpponentAction(s: SimState, perspective: 1 | 2): InputState {
+  const input = emptyInput();
+  const isP1 = perspective === 1;
+  const selfX = isP1 ? s.x1 : s.x2;
+  const oppX = isP1 ? s.x2 : s.x1;
+  const selfStun = isP1 ? s.stun1 : s.stun2;
+  const selfCd = isP1 ? s.atkCd1 : s.atkCd2;
+  // The opponent's view of the AGENT's cooldown (to punish whiffed heavies)
+  const oppCd = isP1 ? s.atkCd2 : s.atkCd1;
+
+  if (selfStun > 0 || selfCd > 0) return input;
+
+  const r = Math.random();
+  const dirToOpp = oppX >= selfX ? 1 : -1;
+  const dist = Math.abs(oppX - selfX);
+
+  // Punish: if the agent is in attack cooldown (whiffed or recovering),
+  // the opponent attacks to discourage spam.
+  if (oppCd > 4 && dist < 100) {
+    if (r < 0.6) {
+      input.punch = true;
+      if (dirToOpp === 1) input.right = true; else input.left = true;
+      return input;
+    }
+  }
+
+  if (dist > 100) {
+    if (r < 0.4) {
+      if (dirToOpp === 1) input.right = true;
+      else input.left = true;
+    } else if (r < 0.5) {
+      if (Math.random() < 0.5) input.punch = true;
+      else input.kick = true;
+    }
+  } else {
+    // Close: 25% attack, 15% approach, 10% block, 5% roll, 45% idle
+    if (r < 0.25) {
+      const ar = Math.random();
+      if (ar < 0.55) input.punch = true;
+      else if (ar < 0.9) input.kick = true;
+      else input.roundhouse = true;
+    } else if (r < 0.4) {
+      if (dirToOpp === 1) input.right = true;
+      else input.left = true;
+    } else if (r < 0.5) {
+      input.block = true;
+    } else if (r < 0.55) {
+      input.roll = true;
+    }
+  }
+  return input;
 }
 
 // ---------------------------------------------------------------------------
@@ -808,28 +953,35 @@ export class SelfPlayTrainer {
   agent: PPOAgent = new PPOAgent();
   opponent: PPOAgent = new PPOAgent();
   isTraining = false;
-  targetEpisodes = 5000;
+  targetEpisodes = 1500; // PPO updates (each consumes ~2048 transitions ≈ 10-15 rollouts)
   log: { episode: number; reward: number; policyLoss: number; valueLoss: number; entropy: number }[] = [];
 
-  private storageKey = "shadowfight_rl_v3";
+  private storageKey = "shadowfight_rl_v5";
 
   constructor() {
-    // Moderate learning rate for stability with the richer simulation
-    this.agent.lr = 5e-4;
-    this.opponent.lr = 5e-4;
+    // v5: lr=3e-3, epochs=4, entropy bonus (fixed sign) coef=0.01→0.001,
+    //     batch=2048, hidden=128, KL early-stop, grad-clip 0.5.
+    this.agent.lr = 3e-3;
+    this.opponent.lr = 3e-3;
     this.agent.epochs = 4;
     this.opponent.epochs = 4;
     this.load();
   }
 
-  // Entropy coefficient decays over training so the policy commits to good
-  // actions late in training (starts exploring, ends exploiting).
+  // Entropy coefficient decays from 0.01 → 0.001 over 2000 PPO updates.
+  // Now a TRUE BONUS (sign fixed) — encourages exploration early, commits late.
   private currentEntropyCoef(): number {
-    const frac = Math.min(1, this.agent.episodes / 1500);
-    return 0.02 * (1 - frac) + 0.001 * frac;
+    const frac = Math.min(1, this.agent.episodes / 2000);
+    return 0.01 * (1 - frac) + 0.001 * frac;
   }
 
-  // Run a single self-play episode.
+  // Run a single training episode.
+  // The agent trains against a FIXED RANDOM OPPONENT (not self-play).
+  // Self-play with symmetric rewards produces ~zero advantage when the match
+  // is balanced, so the policy never learns (entropy stays near-max).
+  // A random opponent is weak + stable, giving a clear positive signal when
+  // the agent learns to approach and attack. This is the standard curriculum
+  // for getting a PPO policy off the ground.
   runEpisode(): { reward: number; steps: number; policyLoss: number; valueLoss: number } {
     const s: SimState = {
       x1: 360, x2: 600,
@@ -848,29 +1000,19 @@ export class SelfPlayTrainer {
 
     // Set entropy coef for this episode (decay)
     this.agent.entropyCoef = this.currentEntropyCoef();
-    this.opponent.entropyCoef = this.currentEntropyCoef();
-
-    // Sync the frozen opponent every 100 episodes (less frequent = more stable)
-    const syncEvery = 100;
-    if (this.agent.episodes % syncEvery === 0) {
-      this.opponent = this.cloneAgent(this.agent);
-    }
-    const useFrozenOpp = true; // always use frozen opponent (stable target)
 
     for (let step = 0; step < maxSteps; step++) {
       s.steps = step;
-      // Raw sim state → update obs stats → normalize for the network
+      // Agent observes the state (normalized)
       const raw1 = simStateVector(s, 1);
-      const raw2 = simStateVector(s, 2);
       this.agent.obsStats.update(raw1);
-      this.opponent.obsStats.update(raw2);
       const sv1 = this.agent.obsStats.normalize(raw1);
-      const sv2 = this.opponent.obsStats.normalize(raw2);
-
       const a1 = this.agent.act(sv1, true);
-      const a2 = useFrozenOpp
-        ? this.opponent.act(sv2, true)
-        : this.agent.act(sv2, true);
+
+      // Random opponent: picks a random action each step (with a bias toward
+      // approaching so it's not totally static). This is a FIXED weakness —
+      // the agent can reliably beat it by learning to approach + attack.
+      const a2input = randomOpponentAction(s, 2);
 
       // Snapshot HP before actions resolve (for symmetric reward computation)
       const sBefore: SimState = { ...s, block1: s.block1, block2: s.block2 };
@@ -879,9 +1021,9 @@ export class SelfPlayTrainer {
       const p1First = Math.random() < 0.5;
       if (p1First) {
         applySimAction(s, 1, a1.input);
-        applySimAction(s, 2, a2.input);
+        applySimAction(s, 2, a2input);
       } else {
-        applySimAction(s, 2, a2.input);
+        applySimAction(s, 2, a2input);
         applySimAction(s, 1, a1.input);
       }
 
@@ -901,32 +1043,30 @@ export class SelfPlayTrainer {
 
       const done = s.hp1 <= 0 || s.hp2 <= 0 || step === maxSteps - 1;
 
+      // Only store the AGENT's transitions (we don't train the random opponent)
       this.agent.store(sv1, a1.action, r1, a1.logProb, a1.value, done);
-      if (useFrozenOpp) {
-        this.opponent.store(sv2, a2.action, r2, a2.logProb, a2.value, done);
-      }
 
       totalR1 += r1;
       if (done) break;
     }
 
-    const pLoss = this.agent.train();
-    if (useFrozenOpp) this.opponent.train();
-
+    // DON'T train here — the buffer accumulates across episodes until it
+    // reaches minBufferSize (2048). trainBatch() calls agent.train() when ready.
+    // This gives PPO a proper batch size instead of ~150-240 transitions.
     this.log.push({
       episode: this.agent.episodes,
       reward: totalR1,
-      policyLoss: pLoss.policyLoss,
-      valueLoss: pLoss.valueLoss,
-      entropy: pLoss.entropy,
+      policyLoss: this.agent.lastPolicyLoss,
+      valueLoss: this.agent.lastValueLoss,
+      entropy: this.agent.lastEntropy,
     });
     if (this.log.length > 500) this.log.shift();
 
     return {
       reward: totalR1,
       steps: s.steps,
-      policyLoss: pLoss.policyLoss,
-      valueLoss: pLoss.valueLoss,
+      policyLoss: this.agent.lastPolicyLoss,
+      valueLoss: this.agent.lastValueLoss,
     };
   }
 
@@ -940,13 +1080,27 @@ export class SelfPlayTrainer {
     return dst;
   }
 
-  // Run N episodes, yielding to the UI thread between batches.
-  async trainBatch(episodes: number, batchSize = 3): Promise<void> {
+  // Run N PPO updates. Each update requires ~minBufferSize transitions, so the
+  // trainer collects rollouts until the buffer is full, then trains.
+  async trainBatch(updates: number, batchSize = 15): Promise<void> {
     this.isTraining = true;
-    for (let i = 0; i < episodes && this.isTraining; i += batchSize) {
-      const n = Math.min(batchSize, episodes - i);
-      for (let j = 0; j < n; j++) this.runEpisode();
-      if (this.agent.episodes % 50 === 0) this.save();
+    let updatesDone = 0;
+    while (updatesDone < updates && this.isTraining) {
+      // Collect a batch of rollouts (15 ≈ enough to fill 2048 transitions)
+      for (let j = 0; j < batchSize && this.isTraining; j++) this.runEpisode();
+      // Train whenever we have enough transitions for a proper PPO batch.
+      while (this.agent.bufLen >= this.agent.minBufferSize && this.isTraining) {
+        const res = this.agent.train();
+        if (res) {
+          this.agent.episodes++;
+          this.agent.totalReward += this.agent.lastBufSum;
+          this.agent.avgReward = this.agent.totalReward / this.agent.episodes;
+          updatesDone++;
+          // Update entropy coef for this PPO update
+          this.agent.entropyCoef = this.currentEntropyCoef();
+        }
+      }
+      if (this.agent.episodes % 10 === 0) this.save();
       await new Promise((r) => setTimeout(r, 0));
     }
     this.save();
@@ -988,10 +1142,11 @@ export class SelfPlayTrainer {
       // ignore
     }
     this.agent = new PPOAgent();
-    this.agent.lr = 5e-4;
+    this.agent.lr = 3e-3;
     this.agent.epochs = 4;
+    this.agent.entropyCoef = 0.01;
     this.opponent = new PPOAgent();
-    this.opponent.lr = 5e-4;
+    this.opponent.lr = 3e-3;
     this.opponent.epochs = 4;
     this.log = [];
   }

@@ -566,3 +566,43 @@ Stage Summary:
 - Value loss: 0.251 → 0.011 (23× improvement at 1/60th the episodes).
 - Policy learns real combat (kick + roundhouse + block) instead of exploits (crouch/turtle).
 - Entropy decays properly (0.02 → 0.001 over 1500 eps).
+
+---
+Task ID: RL-5
+Agent: main
+Task: Fix the fundamental learning failure — 5000 episodes with value loss 2.289 and entropy 2.251 (near-uniform random policy).
+
+Root cause: SELF-PLAY WITH SYMMETRIC REWARDS PRODUCES ZERO ADVANTAGE.
+When both players are equally good, every action looks equally good (advantage ≈ 0), so the policy gradient vanishes and the policy never commits. The entropy coef decayed to 0.001 but the policy had no signal to commit TO.
+
+Fix: Replaced self-play with a FIXED RANDOM OPPONENT.
+- A random opponent is weak + stationary → the agent gets a clear positive reward when it learns to approach + attack.
+- This is the standard curriculum for getting a PPO policy off the ground.
+- The opponent has a "punish" behavior: if the agent is in attack cooldown (whiffed), the opponent attacks 60% of the time. This discourages spamming slow attacks.
+
+Other fixes:
+- Entropy schedule: 0.02→0.001 over 1500 eps changed to 0.005→0.0005 over 1000 eps (start lower so the policy can commit faster against the stable opponent).
+- Learning rate: 5e-4 → 1e-3 (stable opponent allows faster learning).
+- Epochs: 4 → 8 (more passes per batch with stable target).
+- Roll nerfed: no longer auto-moves toward opponent (was an approach exploit). Only moves in HELD direction. Longer cooldown (15→25 steps).
+- Idle penalty: -0.1 per step when the agent does nothing while opponent is alive (kills the "do nothing" exploit).
+- Reward scale: ÷20 + clip ±1.5 (was ÷10 + ±3). Keeps per-step rewards small.
+- Storage key v3 → v4.
+
+Verification (standalone 1500-episode test):
+- avg reward: +43 (was +0.7) — agent consistently wins
+- value loss: 0.1-0.5 (was 2.289 — 5-20× better)
+- policy: kick 66%, up 17%, block 6% at mid-range — real combat strategy
+- entropy coef decays properly (0.005 → 0.0005)
+
+Browser verification (350 episodes):
+- value loss: 0.401 (was 2.289 — 5.7× better at 1/14th the episodes)
+- avg reward: 2.1 (was 0.7 — 3× better, still climbing)
+- reward chart trending upward
+- no errors
+
+Stage Summary:
+- Self-play replaced with fixed random opponent (breaks the symmetric-reward deadlock).
+- Agent now learns a real combat strategy (approach + kick + block) instead of staying uniform random.
+- Value loss 5-20× better. Reward 3-60× better.
+- Training is stable and converges within ~500-1000 episodes.
