@@ -159,6 +159,67 @@ function applyGrads(l: Layer, lr: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Running statistics for observation & reward normalization (PPO standard).
+// Uses Welford's algorithm for numerical stability. Normalizing observations
+// to zero-mean unit-variance dramatically improves convergence — without it,
+// the network fights scale mismatches (HP 0-1 vs facing ±1 vs distance -1..1)
+// instead of learning the task.
+// ---------------------------------------------------------------------------
+
+class RunningStats {
+  n = 0;
+  mean: number[];
+  M2: number[]; // sum of squared deviations
+  clip: number;
+
+  constructor(size: number, clip = 10) {
+    this.mean = new Array(size).fill(0);
+    this.M2 = new Array(size).fill(0);
+    this.clip = clip;
+  }
+
+  // Update running stats with a new observation (per-dimension)
+  update(x: number[]) {
+    this.n++;
+    const n = this.n;
+    for (let i = 0; i < x.length; i++) {
+      const delta = x[i] - this.mean[i];
+      this.mean[i] += delta / n;
+      const delta2 = x[i] - this.mean[i];
+      this.M2[i] += delta * delta2;
+    }
+  }
+
+  // Normalize an observation using current running stats.
+  // Before enough samples are collected, returns the raw input.
+  normalize(x: number[]): number[] {
+    if (this.n < 30) return x.slice();
+    const out = new Array(x.length);
+    for (let i = 0; i < x.length; i++) {
+      const std = Math.sqrt(this.M2[i] / this.n) + 1e-8;
+      out[i] = Math.max(-this.clip, Math.min(this.clip, (x[i] - this.mean[i]) / std));
+    }
+    return out;
+  }
+
+  // For scalar reward normalization
+  updateScalar(x: number) {
+    this.n++;
+    const n = this.n;
+    const delta = x - this.mean[0];
+    this.mean[0] += delta / n;
+    const delta2 = x - this.mean[0];
+    this.M2[0] += delta * delta2;
+  }
+
+  normalizeScalar(x: number): number {
+    if (this.n < 30) return x;
+    const std = Math.sqrt(this.M2[0] / this.n) + 1e-8;
+    return Math.max(-this.clip, Math.min(this.clip, (x - this.mean[0]) / std));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Network definitions
 // ---------------------------------------------------------------------------
 
@@ -219,6 +280,15 @@ export class PPOAgent {
   valueClip = 0.2;
   epochs = 4;
 
+  // Running normalization for observations (per-dim) and rewards (scalar).
+  // This is the #1 stabilizer for PPO — normalizes the network's input space
+  // to zero-mean unit-variance so gradients aren't dominated by scale mismatches.
+  obsStats: RunningStats = new RunningStats(STATE_SIZE, 10);
+  rewardStats: RunningStats = new RunningStats(1, 10);
+  // Reward scale: divide raw rewards by this (updated from running std).
+  // We use a fixed scale factor to keep rewards in a learnable range.
+  rewardScale = 1.0;
+
   episodes = 0;
   totalReward = 0;
   avgReward = 0;
@@ -245,15 +315,17 @@ export class PPOAgent {
   }
 
   getProbs(s: number[]): number[] {
-    return this.policyForward(s).probs;
+    const sn = this.obsStats.normalize(s);
+    return this.policyForward(sn).probs;
   }
 
   getValue(s: number[]): number {
-    return this.valueForward(s).v;
+    const sn = this.obsStats.normalize(s);
+    return this.valueForward(sn).v;
   }
 
   getState(self: Fighter, opp: Fighter): number[] {
-    return [
+    const raw = [
       self.x / 960, self.hp / self.maxHp, self.rageMeter / 100,
       self.vx / 200, self.vy / 500,
       self.onGround ? 1 : 0, self.isAttacking() ? 1 : 0,
@@ -263,14 +335,18 @@ export class PPOAgent {
       opp.onGround ? 1 : 0, opp.isAttacking() ? 1 : 0,
       opp.isBlocking() ? 1 : 0, opp.invuln > 0 ? 1 : 0, opp.facing,
     ];
+    // Update running stats and return normalized state for the network
+    this.obsStats.update(raw);
+    return this.obsStats.normalize(raw);
   }
 
-  // Act on a state. Returns the chosen action, the input, the log-prob, and value.
+  // Act on a state. The state should ALREADY be normalized (via getState or
+  // obsStats.normalize). Returns the chosen action, input, log-prob, and value.
   act(s: number[], stoch = true): {
     action: number; input: InputState; logProb: number; value: number;
   } {
     const { probs } = this.policyForward(s);
-    const value = this.getValue(s);
+    const value = this.valueForward(s).v;
     let action = 0;
     if (stoch) {
       const r = Math.random();
@@ -286,8 +362,14 @@ export class PPOAgent {
     return { action, input: actionToInput(action), logProb: lp, value };
   }
 
+  // Store a transition. Rewards are scaled and clipped to keep them in a
+  // learnable range for the value function and prevent occasional huge
+  // spikes (from opponent-sync mismatches) from destabilizing training.
   store(s: number[], a: number, r: number, lp: number, v: number, d: boolean) {
-    this.buf.push({ s, a, r, lp, v, d });
+    // Fixed scale + clip: typical per-step reward is ±2, KOs are ±15.
+    // Divide by 10 → ±0.2 typical, ±1.5 for KOs. Clip at ±3 for safety.
+    const rs = Math.max(-3, Math.min(3, r / 10));
+    this.buf.push({ s, a, r: rs, lp, v, d });
   }
 
   // ---- PPO update with full backpropagation ----
@@ -452,6 +534,8 @@ export class PPOAgent {
       episodes: this.episodes,
       totalReward: this.totalReward,
       avgReward: this.avgReward,
+      obsStats: { n: this.obsStats.n, mean: this.obsStats.mean, M2: this.obsStats.M2 },
+      rewardStats: { n: this.rewardStats.n, mean: this.rewardStats.mean, M2: this.rewardStats.M2 },
     });
   }
 
@@ -473,6 +557,16 @@ export class PPOAgent {
       this.episodes = d.episodes ?? 0;
       this.totalReward = d.totalReward ?? 0;
       this.avgReward = d.avgReward ?? 0;
+      if (d.obsStats) {
+        this.obsStats.n = d.obsStats.n;
+        this.obsStats.mean = d.obsStats.mean;
+        this.obsStats.M2 = d.obsStats.M2;
+      }
+      if (d.rewardStats) {
+        this.rewardStats.n = d.rewardStats.n;
+        this.rewardStats.mean = d.rewardStats.mean;
+        this.rewardStats.M2 = d.rewardStats.M2;
+      }
       return true;
     } catch {
       return false;
@@ -511,6 +605,9 @@ interface SimState {
   stun1: number; stun2: number; // hitstun timers (steps remaining)
   atkCd1: number; atkCd2: number; // attack cooldown (steps remaining)
   block1: boolean; block2: boolean; // is this fighter holding block this step
+  air1: boolean; air2: boolean; // is this fighter airborne (jumping)
+  airT1: number; airT2: number; // air time remaining (steps)
+  rollCd1: number; rollCd2: number; // roll cooldown (i-frames)
   steps: number;
 }
 
@@ -528,15 +625,21 @@ function simStateVector(s: SimState, perspective: 1 | 2): number[] {
   const oppCd = isP1 ? s.atkCd2 : s.atkCd1;
   const selfBlock = isP1 ? s.block1 : s.block2;
   const oppBlock = isP1 ? s.block2 : s.block1;
+  const selfAir = isP1 ? s.air1 : s.air2;
+  const oppAir = isP1 ? s.air2 : s.air1;
+  const selfRoll = isP1 ? s.rollCd1 : s.rollCd2;
+  const oppRoll = isP1 ? s.rollCd2 : s.rollCd1;
   const dist = (oppX - selfX) / 960;
   return [
     selfX / 960, selfHp / 100, selfRage / 100, 0, 0,
-    1, selfCd > 0 ? 1 : 0, selfBlock ? 1 : 0, selfStun > 0 ? 1 : 0,
+    selfAir ? 0 : 1, selfCd > 0 ? 1 : 0, selfBlock ? 1 : 0, selfStun > 0 ? 1 : 0,
     isP1 ? 1 : -1,
     dist, oppHp / 100, oppRage / 100, 0, 0,
-    1, oppCd > 0 ? 1 : 0, oppBlock ? 1 : 0, oppStun > 0 ? 1 : 0,
+    oppAir ? 0 : 1, oppCd > 0 ? 1 : 0, oppBlock ? 1 : 0, oppStun > 0 ? 1 : 0,
     isP1 ? -1 : 1,
   ];
+  // NOTE: roll i-frame state (selfRoll/oppRoll) is implicitly captured by the
+  // invuln field in the real game's getState(). In the sim, roll just dodges.
 }
 
 // Apply one fighter's action (mutates state). Does NOT compute reward —
@@ -551,10 +654,22 @@ function applySimAction(
   const oppX = isP1 ? s.x2 : s.x1;
   const selfStun = isP1 ? s.stun1 : s.stun2;
   const selfCd = isP1 ? s.atkCd1 : s.atkCd2;
+  const selfAir = isP1 ? s.air1 : s.air2;
+  const selfRoll = isP1 ? s.rollCd1 : s.rollCd2;
   const dist = Math.abs(oppX - selfX);
+  const dirToOpp = oppX >= selfX ? 1 : -1;
 
-  // Update this fighter's block state for this step
-  const blocking = input.block && selfStun <= 0 && selfCd <= 0;
+  // Tick down air time; land when it reaches 0
+  if (isP1) {
+    if (s.airT1 > 0) { s.airT1--; if (s.airT1 === 0) s.air1 = false; }
+  } else {
+    if (s.airT2 > 0) { s.airT2--; if (s.airT2 === 0) s.air2 = false; }
+  }
+  // Tick down roll i-frames
+  if (isP1) { if (s.rollCd1 > 0) s.rollCd1--; } else { if (s.rollCd2 > 0) s.rollCd2--; }
+
+  // Update this fighter's block state for this step (can't block while airborne/rolling)
+  const blocking = input.block && selfStun <= 0 && selfCd <= 0 && !selfAir && selfRoll <= 0;
   if (isP1) s.block1 = blocking; else s.block2 = blocking;
 
   // If stunned, can't act — just tick down stun
@@ -563,15 +678,36 @@ function applySimAction(
     return;
   }
 
-  // Movement (can't move while blocking or in attack cooldown)
-  if (!blocking && selfCd <= 0) {
+  // Rolling dodge: i-frames for 5 steps, moves toward opponent, 15-step cooldown
+  if (input.roll && selfRoll <= 0 && !selfAir && selfCd <= 0) {
+    const rollDir = input.left ? -1 : input.right ? 1 : dirToOpp;
+    const newX = Math.max(80, Math.min(880, selfX + rollDir * 20));
+    if (isP1) { s.x1 = newX; s.rollCd1 = 15; } else { s.x2 = newX; s.rollCd2 = 15; }
+    return; // can't do anything else this step
+  }
+
+  // Jump: go airborne for 8 steps, can steer horizontally
+  if (input.up && !selfAir && selfCd <= 0 && selfRoll <= 0) {
+    if (isP1) { s.air1 = true; s.airT1 = 8; } else { s.air2 = true; s.airT2 = 8; }
+    // air steering
+    if (!blocking) {
+      let newX = selfX;
+      if (input.left) newX = Math.max(80, newX - 6);
+      if (input.right) newX = Math.min(880, newX + 6);
+      if (isP1) s.x1 = newX; else s.x2 = newX;
+    }
+    return;
+  }
+
+  // Movement (can't move while blocking, in cooldown, or airborne)
+  if (!blocking && selfCd <= 0 && !selfAir) {
     let newX = selfX;
     if (input.left) newX = Math.max(80, newX - 5);
     if (input.right) newX = Math.min(880, newX + 5);
     if (isP1) s.x1 = newX; else s.x2 = newX;
   }
 
-  // Attack resolution
+  // Attack resolution (can't attack while blocking, but CAN attack airborne)
   if (selfCd <= 0 && !blocking) {
     let attack: SimAction | null = null;
     if (input.punch) attack = "punch";
@@ -581,21 +717,26 @@ function applySimAction(
     if (attack) {
       const spec = SIM_ATTACKS[attack];
       const inRange = dist < spec.range;
+      // Airborne attacks get +30% range (jump-in attacks)
+      const effectiveRange = selfAir ? spec.range * 1.3 : spec.range;
+      const inRangeEff = dist < effectiveRange;
       const oppBlocking = isP1 ? s.block2 : s.block1;
       const oppStunNow = isP1 ? s.stun2 : s.stun1;
+      const oppRolling = isP1 ? s.rollCd2 > 0 : s.rollCd1 > 0; // rolling = invulnerable
 
-      if (inRange && oppStunNow <= 0) {
+      if (inRangeEff && oppStunNow <= 0 && !oppRolling) {
         // Damage: blocked = 18% (like the game), clean = 100%
-        const dmg = oppBlocking ? Math.max(1, Math.round(spec.dmg * 0.18)) : spec.dmg;
+        // Airborne attacks can't be blocked (overhead)
+        const dmg = (oppBlocking && !selfAir) ? Math.max(1, Math.round(spec.dmg * 0.18)) : spec.dmg;
         if (isP1) {
           s.hp2 = Math.max(0, s.hp2 - dmg);
-          if (!oppBlocking) {
+          if (!oppBlocking || selfAir) {
             s.stun2 = spec.stun;
             s.rage1 = Math.min(100, s.rage1 + dmg * 0.4);
           }
         } else {
           s.hp1 = Math.max(0, s.hp1 - dmg);
-          if (!oppBlocking) {
+          if (!oppBlocking || selfAir) {
             s.stun1 = spec.stun;
             s.rage2 = Math.min(100, s.rage2 + dmg * 0.4);
           }
@@ -626,13 +767,15 @@ function computeReward(
   // Core: damage dealt (+) minus damage taken (-) — amplified so combat > turtling
   let reward = (oppHpLost - selfHpLost) * 1.5;
 
-  // Proximity shaping: reward being in engagement range
-  const selfX = isP1 ? sAfter.x1 : sAfter.x2;
+  // Proximity shaping: small reward for closing distance when far away.
+  // Only rewards APPROACHING (not just being close) to avoid crouch-exploit.
+  const selfXBefore = isP1 ? sBefore.x1 : sBefore.x2;
+  const selfXAfter = isP1 ? sAfter.x1 : sAfter.x2;
   const oppX = isP1 ? sAfter.x2 : sAfter.x1;
-  const dist = Math.abs(oppX - selfX);
-  if (dist < 200) {
-    const prox = 1 - Math.abs(dist - 80) / 120;
-    reward += Math.max(0, prox) * 0.05;
+  const distBefore = Math.abs(oppX - selfXBefore);
+  const distAfter = Math.abs(oppX - selfXAfter);
+  if (distBefore > 100 && distAfter < distBefore) {
+    reward += 0.03; // reward for actually closing the gap
   }
 
   // Block bonus: ONLY reward when we actually prevented damage by blocking.
@@ -650,9 +793,9 @@ function computeReward(
     reward -= 0.05;
   }
 
-  // KO bonus / penalty (terminal)
-  if (oppHpAfter <= 0) reward += 25;
-  if (selfHpAfter <= 0) reward -= 25;
+  // KO bonus / penalty (terminal) — kept moderate to avoid value-loss spikes
+  if (oppHpAfter <= 0) reward += 15;
+  if (selfHpAfter <= 0) reward -= 15;
 
   return reward;
 }
@@ -665,17 +808,17 @@ export class SelfPlayTrainer {
   agent: PPOAgent = new PPOAgent();
   opponent: PPOAgent = new PPOAgent();
   isTraining = false;
-  targetEpisodes = 2500;
+  targetEpisodes = 5000;
   log: { episode: number; reward: number; policyLoss: number; valueLoss: number; entropy: number }[] = [];
 
-  private storageKey = "shadowfight_rl_v2";
+  private storageKey = "shadowfight_rl_v3";
 
   constructor() {
-    // Higher learning rate + entropy decay for better convergence
-    this.agent.lr = 1e-3;
-    this.opponent.lr = 1e-3;
-    this.agent.epochs = 6;
-    this.opponent.epochs = 6;
+    // Moderate learning rate for stability with the richer simulation
+    this.agent.lr = 5e-4;
+    this.opponent.lr = 5e-4;
+    this.agent.epochs = 4;
+    this.opponent.epochs = 4;
     this.load();
   }
 
@@ -695,6 +838,9 @@ export class SelfPlayTrainer {
       stun1: 0, stun2: 0,
       atkCd1: 0, atkCd2: 0,
       block1: false, block2: false,
+      air1: false, air2: false,
+      airT1: 0, airT2: 0,
+      rollCd1: 0, rollCd2: 0,
       steps: 0,
     };
     const maxSteps = 240;
@@ -704,9 +850,8 @@ export class SelfPlayTrainer {
     this.agent.entropyCoef = this.currentEntropyCoef();
     this.opponent.entropyCoef = this.currentEntropyCoef();
 
-    // Sync the frozen opponent every 30 episodes so the agent faces a
-    // gradually-stronger sparring partner (not a random mirror).
-    const syncEvery = 30;
+    // Sync the frozen opponent every 100 episodes (less frequent = more stable)
+    const syncEvery = 100;
     if (this.agent.episodes % syncEvery === 0) {
       this.opponent = this.cloneAgent(this.agent);
     }
@@ -714,8 +859,13 @@ export class SelfPlayTrainer {
 
     for (let step = 0; step < maxSteps; step++) {
       s.steps = step;
-      const sv1 = simStateVector(s, 1);
-      const sv2 = simStateVector(s, 2);
+      // Raw sim state → update obs stats → normalize for the network
+      const raw1 = simStateVector(s, 1);
+      const raw2 = simStateVector(s, 2);
+      this.agent.obsStats.update(raw1);
+      this.opponent.obsStats.update(raw2);
+      const sv1 = this.agent.obsStats.normalize(raw1);
+      const sv2 = this.opponent.obsStats.normalize(raw2);
 
       const a1 = this.agent.act(sv1, true);
       const a2 = useFrozenOpp
@@ -838,11 +988,11 @@ export class SelfPlayTrainer {
       // ignore
     }
     this.agent = new PPOAgent();
-    this.agent.lr = 1e-3;
-    this.agent.epochs = 6;
+    this.agent.lr = 5e-4;
+    this.agent.epochs = 4;
     this.opponent = new PPOAgent();
-    this.opponent.lr = 1e-3;
-    this.opponent.epochs = 6;
+    this.opponent.lr = 5e-4;
+    this.opponent.epochs = 4;
     this.log = [];
   }
 }

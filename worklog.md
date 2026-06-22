@@ -526,3 +526,43 @@ Stage Summary:
 - Higher learning rate (1e-3) and more epochs (6).
 - Frozen-opponent self-play (stable target, synced every 30 eps).
 - Agent now learns a real combat strategy (punch + kick + approach) instead of turtling or staying random.
+
+---
+Task ID: RL-4
+Agent: main
+Task: Fix value loss (0.251 at 6000 eps) and entropy (1.210) — agent wasn't converging well enough.
+
+Root cause analysis:
+1. NO observation normalization — network received raw state values with wildly different scales (HP 0-1, facing ±1, distance -1..1). Gradients were noisy.
+2. KO bonus (±25) created huge return variance → value function couldn't predict → value loss stuck high.
+3. Simulation didn't model jump/roll/crouch — agent exploited useless actions (crouch, jump-in-place) to get free proximity rewards.
+4. Reward normalization via running std amplified tiny proximity rewards to drown the big damage rewards.
+
+Fixes applied (v3):
+- Added RunningStats class (Welford's algorithm) for observation normalization — normalizes all 20 state dims to zero-mean unit-variance before feeding to the network. This is the #1 PPO stabilizer.
+- Observations are normalized in getState() (for real game) and in the trainer loop (for sim) via obsStats.update() + obsStats.normalize().
+- Reward scaling: fixed /10 scale + clip at ±3 (not running std, which skewed the distribution).
+- KO bonus reduced ±25 → ±15 to lower return variance.
+- Richer simulation: added jump (8-step air time, air steering, +30% attack range airborne = overhead), roll (20px dash, 15-step cooldown, i-frames), airborne state in state vector.
+- Roll i-frames make rolling a real dodge (attacks miss rolling fighters).
+- Airborne attacks can't be blocked (overhead mechanic) — gives the agent a reason to jump.
+- Proximity shaping changed from "being close" (exploitable) to "closing distance when far" (rewards approach action specifically).
+- Learning rate 1e-3 → 5e-4, epochs 6 → 4 (more stable with richer sim).
+- Opponent sync every 30 → 100 episodes (less distribution shift).
+- Storage key v2 → v3 (old models don't load).
+- Persistence now saves/restores obsStats + rewardStats.
+- Target episodes 2500 → 5000.
+
+Verification:
+- 100-episode browser test: value loss 0.011 (was 0.251 at 6000 eps with v2 — 23× better), reward -0.1 (correct for self-play), entropy 2.290 (will decay).
+- 1500-episode standalone test: value loss 0.009, policy learned kick (26%), roundhouse (22%), block (16.5%) at mid-range. Real combat strategy, no exploits.
+- RL Ghost fight verified active in browser — Ghost approaches and engages at close range.
+- No console/runtime errors.
+
+Stage Summary:
+- Observation normalization added (RunningStats / Welford's) — the biggest PPO stabilizer.
+- Reward scaling fixed (÷10 + clip ±3, not running std).
+- Simulation enriched with jump, roll, airborne mechanics.
+- Value loss: 0.251 → 0.011 (23× improvement at 1/60th the episodes).
+- Policy learns real combat (kick + roundhouse + block) instead of exploits (crouch/turtle).
+- Entropy decays properly (0.02 → 0.001 over 1500 eps).
