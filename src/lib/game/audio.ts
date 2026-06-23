@@ -96,6 +96,23 @@ export class GameAudio {
     this.rageFull = v;
   }
 
+  // play a one-shot intro clip at the start of each fight
+  private introEl: HTMLAudioElement | null = null;
+
+  playFightIntro() {
+    if (typeof window === "undefined") return;
+    if (!this.introEl) {
+      this.introEl = new Audio("/audio/fight_intro.mp3");
+      this.introEl.volume = 0.7;
+      if (this.master && this.ctx) {
+        const src = this.ctx.createMediaElementSource(this.introEl);
+        src.connect(this.master);
+      }
+    }
+    this.introEl.currentTime = 0;
+    void this.introEl.play().catch(() => {});
+  }
+
   async start() {
     if (this.running) return;
     if (typeof window === "undefined") return;

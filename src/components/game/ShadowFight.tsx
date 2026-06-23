@@ -375,6 +375,7 @@ export default function ShadowFight() {
     setStarted(true);
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
+    audio.playFightIntro();
   }, [eng, audio, muted]);
   const startSelect = useCallback(() => {
     eng.startMatchWith(
@@ -384,6 +385,7 @@ export default function ShadowFight() {
     setStarted(true);
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
+    audio.playFightIntro();
   }, [eng, audio, muted, selOpp, selScene]);
   const startTwoPlayer = useCallback(() => {
     setPaused(false);
@@ -391,6 +393,7 @@ export default function ShadowFight() {
     setStarted(true);
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
+    audio.playFightIntro();
   }, [eng, audio, muted]);
   const backToMenu = useCallback(() => {
     eng.toMenu();
@@ -402,16 +405,19 @@ export default function ShadowFight() {
     eng.nextOpponent();
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
+    audio.playFightIntro();
   }, [eng, audio, muted]);
   const retry = useCallback(() => {
     eng.retryMatch();
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
+    audio.playFightIntro();
   }, [eng, audio, muted]);
   const restart = useCallback(() => {
     eng.startMatch();
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
+    audio.playFightIntro();
   }, [eng, audio, muted]);
   // Skip straight to the destruction ending — a debug/convenience shortcut
   // that bypasses the tournament and crowns the shadow immediately.
@@ -420,6 +426,7 @@ export default function ShadowFight() {
     setStarted(true);
     setSnap(snapFrom(eng));
     if (!muted) void audio.start();
+    audio.playFightIntro();
   }, [eng, audio, muted]);
 
   // Fight the RL Ghost — an opponent driven by the trained PPO policy.
