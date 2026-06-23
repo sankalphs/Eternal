@@ -54,3 +54,10 @@ server.log
 /skills/
 .env
 .env
+
+# dev artifacts
+upload/
+tool-results/
+download/
+worklog.md
+test_final.ts
