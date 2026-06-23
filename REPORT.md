@@ -1,6 +1,6 @@
-# SHADOW FIGHT — Technical Report
+# Eternal — Technical Report
 
-> **Project**: *The Shadow's Ascension* — a cinematic 2D shadow-fighting game
+> **Project**: *Eternal* — Legends Fade. Eternal Remains.
 > **Stack**: Next.js 16 · TypeScript 5 · Canvas2D · WebGL · Web Audio API
 > **Codebase**: ~6,900 lines of game logic, fully client-side, serverless-deployable
 > **Status**: Feature-complete; RL module present but inactive in gameplay
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-*The Shadow's Ascension* is a browser-native fighting game that reproduces the silhouette-art aesthetic and feel of *Shadow Fight 2* while inverting the narrative: the player **is** the villain. The game ships with a 2:22 cinematic intro synced to a musical score, eight opponents with escalating rule-based AI, a procedural Chinese-inspired soundtrack, a world-destruction ending, momentum-based physics, a skeletal animation system rendering solid filled shadow silhouettes, and a WebGL post-processing pipeline (bloom, chromatic aberration, vignette).
+*Eternal* is a browser-native fighting game that reproduces the silhouette-art aesthetic and feel of *Shadow Fight 2* while inverting the narrative: the player **is** the villain. The game ships with a 2:22 cinematic intro synced to a musical score, eight opponents with escalating rule-based AI, a procedural Chinese-inspired soundtrack, a world-destruction ending, momentum-based physics, a skeletal animation system rendering solid filled shadow silhouettes, and a WebGL post-processing pipeline (bloom, chromatic aberration, vignette).
 
 All gameplay, physics, AI, audio synthesis, and rendering execute client-side. The Next.js server serves only static bundles, making the game deployable to any CDN with no backend runtime cost.
 
@@ -630,7 +630,7 @@ Each hit layers three synthesized components:
 
 ## 10. Story & Cinematics
 
-### 10.1 Narrative — "The Shadow's Ascension"
+### 10.1 Narrative — "Eternal"
 The player is an ancient evil unsealed after 1000 years. The 8 opponents are the last Sealers. The twist: the "hero" you appear to be died at the first gate; you're a demon wearing his memories. Defeating all 8 heroes triggers the world-destruction ending.
 
 ### 10.2 Intro Cutscene (10 acts, 2:22)
@@ -779,7 +779,7 @@ Deployable to any CDN: **Vercel** (recommended, native Next.js), **Netlify**, **
 
 ## 18. Conclusion
 
-*The Shadow's Ascension* delivers a complete, cinematic fighting-game experience entirely in the browser. The solid-filled tapered-limb rendering produces the signature shadow-silhouette aesthetic; the momentum physics and variable-jump/roll mechanics provide weighty, responsive control; the 10-field rule-based AI with habit tracking yields a believable escalating difficulty curve; the procedural audio engine generates a dynamic Chinese-inspired score; the WebGL post-processing pipeline adds cinematic bloom and chromatic aberration; and the 10-act villain narrative with a world-destruction ending provides a complete story arc. All of this runs client-side with no backend dependency, making it trivially deployable to any CDN.
+*Eternal* delivers a complete, cinematic fighting-game experience entirely in the browser. The solid-filled tapered-limb rendering produces the signature shadow-silhouette aesthetic; the momentum physics and variable-jump/roll mechanics provide weighty, responsive control; the 10-field rule-based AI with habit tracking yields a believable escalating difficulty curve; the procedural audio engine generates a dynamic Chinese-inspired score; the WebGL post-processing pipeline adds cinematic bloom and chromatic aberration; and the 10-act villain narrative with a world-destruction ending provides a complete story arc. All of this runs client-side with no backend dependency, making it trivially deployable to any CDN.
 
 ---
 
